@@ -1,0 +1,8 @@
+new-window vim meow5.asm
+split-window -h bash
+display-message "Welcome to the Thunderdome"
+
+# TO TRY: send keys to run something in other one...
+# First, name the other pane, then we can call it:
+#tmux send-keys -t "pane name goes here" './build.sh run' Enter
+

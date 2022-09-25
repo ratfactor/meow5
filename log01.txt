@@ -1,0 +1,83 @@
+    First log! I've spent a couple weeks setting up the
+    basic environment. Much of my time has been in the
+    excellent tmux man page.
+
+    The biggest thing has been having a Bash alias that
+    starts up my dev environment for the project. That was
+    actually a little tricky.
+    The key here is the `start-server` command:
+
+        alias mm='cd /home/dave/meow5 ;
+                  tmux start-server \; source-file tmux.cmds'
+
+    (Newline and indenting just to make it fit in this log.
+    Also note the escaped semicolon: that's to separate the
+    two tmux commands (start-server and source-file) but not
+    have Bash interpret the semicolon as dividing two
+    separate shell commands!
+
+    I also have the barest begiinnings of a meow5.asm file.
+    The next tasks are:
+
+    1. Write the assembly to print "Meow"
+    2. Write the assembly to copy #1 five times in memory
+       and jmp to it so that we print "MeowMeowMeowMeowMeow"
+
+    A couple nights later, I'm halfway through that list:
+
+        ; A single meow
+        ; -----------------------------------------------
+            mov ebx, STDOUT
+            mov ecx, meow              ; str start addr
+            mov edx, (meow_end - meow) ; str length
+            mov eax, SYS_WRITE
+            int 0x80
+        end_print_meow:
+            mov ebx, 0 ; exit with happy 0
+        exit: ; (don't forget to set ebx to exit code)
+            mov eax, SYS_EXIT
+            int 0x80
+
+    Which works, of course:
+
+$ ./build.sh run
+Meow.
+
+    Okay, now how about just one simple copy. I'm also getting
+    more comfortable with writing simple NASM macros:
+
+        ; The First Test - Can I copy a meow?
+        ; -----------------------------------------------
+        %define meow_len (end_print_meow - print_meow)
+        %define exit_len (end_exit - happy_exit)
+
+            ; copy meow printing code
+            mov edi, data_segment ; destination
+            mov esi, print_meow   ; source
+            mov ecx, meow_len     ; bytes to copy
+            rep movsb             ; copy!
+
+            ; copy exit code
+            mov edi, (data_segment+meow_len) ; destination
+            mov esi, happy_exit   ; source
+            mov ecx, exit_len ; len
+            rep movsb ; copy ecx bytes
+
+            ; jump to the copied code!
+            jmp data_segment
+
+    Crossing fingers and...
+
+$ ./build.sh run
+Meow.
+Meow.
+
+    What!? That worked? Wow, first try!
+
+    I mean, OF COURSE it worked. Why wouldn't it?
+
+    Okay, so obviously I could copy "meow" five times in this
+    brute-force way. But the whole point is to do it
+    programatically as if I were really compiling several
+    words (functions) together into a larger word.
+
