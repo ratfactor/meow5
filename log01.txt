@@ -81,3 +81,15 @@ Meow.
     programatically as if I were really compiling several
     words (functions) together into a larger word.
 
+    Couple nights later: dsscovered the '$' preprocessor
+    symbol in NASM for the current address, so using that
+    for handier routine length calculations at the very
+    end of the routine:
+
+        print_meow:
+            ...
+        %assign meow_len ($ - print_meow)
+
+    Now I'm down to 1 meow, bu that's okay. Progress
+    is slow and steady and my computing environment keeps
+    getting handier.

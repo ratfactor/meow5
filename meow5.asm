@@ -10,6 +10,16 @@
 ;         A very conCATenative language
 ; -----------------------------------------------
 
+;EAX: The accumulator/return val
+;EBX: often for pointers
+;ECX: often for counters
+;EDX: whatever
+;ESI: The source index for string operations.
+;EDI: The destination index for string operations.
+;EBP: pointer to current fn stack frame base
+;ESP: pointer to current fn stack frame top
+;EIP: instruction pointer!
+
 %assign STDIN 0
 %assign STDOUT 1
 %assign STDERR 2
@@ -18,34 +28,41 @@
 %assign SYS_WRITE 4
 
 section .data
+; -----------------------------------------------
 meow:
     db `Meow.\n`
 end_meow:
 
 section .bss
+; -----------------------------------------------
 data_segment: resb 1024 
 
-; Start!
-; -----------------------------------------------
-section .text
-global _start
-_start:
-    cld    ; use increment order for certain cmds
 
-; A meow:
+section .text
 ; -----------------------------------------------
+
+happy_exit:
+    mov ebx, 0 ; exit with happy 0
+exit:
+    mov eax, SYS_EXIT
+    int 0x80
+;end_exit:
+%assign exit_len ($ - happy_exit)
+
 print_meow:
     mov ebx, STDOUT
     mov ecx, meow              ; str start addr
     mov edx, (end_meow - meow) ; str length
     mov eax, SYS_WRITE
     int 0x80
-end_print_meow:
+%assign meow_len ($ - print_meow)
 
-; The First Test - Can I copy a meow?
-; -----------------------------------------------
-%define meow_len (end_print_meow - print_meow)
-%define exit_len (end_exit - happy_exit)
+; Start!
+global _start
+_start:
+    cld    ; use increment order for certain cmds
+
+    ; The First Test - Can I copy a meow?
 
     ; copy meow printing code
     mov edi, data_segment ; destination
@@ -62,9 +79,3 @@ end_print_meow:
     ; jump to the copied code!
     jmp data_segment
 
-happy_exit:
-    mov ebx, 0 ; exit with happy 0
-exit:
-    mov eax, SYS_EXIT
-    int 0x80
-end_exit:
