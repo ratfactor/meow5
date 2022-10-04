@@ -1,0 +1,44 @@
+    So log01.txt concluded with a nice little demonstration
+    of programatically inlining machine code at runtime to
+    "compile" a program and run it.
+
+    The next step is to start to turn this into an actual
+    language by creating headers for words (I've decided
+    I'll use the Forth term "word" to refer to the functions
+    we create in this language).
+
+        1. Look up word length from header so it doesn't
+           have to be manually created and sent to the
+           inline function.
+
+        2. Look up word by stored ASCII  name in header at
+           runtime. That'll be exciting. I'll practically
+           have a programming language at that point.
+
+    I think I'll use a linked list of words like many
+    traditional Forths, since that's what I learned how to
+    implement in my JONESFORTH port, nasmjf.
+
+
+
+
+
+        For the moment, I'm going to keep this floating here
+        at the bottom of this log to remind me that I need
+        to figure out how I want to use registers in this
+        program. Typical usage notes:
+
+        EAX: The accumulator/return val
+        EBX: often for pointers
+        ECX: often for counters
+        EDX: whatever
+        ESI: The source index for string operations.
+               JF used ESI for NEXT word address pointer
+        EDI: The destination index for string operations.
+        EBP: pointer to current fn stack frame base
+               JF used EBP as Return stack pointer ("RSP")
+        ESP: pointer to current fn stack frame top
+               JF used the stack as THE parameter stack
+        EIP: instruction pointer!
+
+

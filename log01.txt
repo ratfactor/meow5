@@ -76,12 +76,12 @@ Meow.
 
     I mean, OF COURSE it worked. Why wouldn't it?
 
-    Okay, so obviously I could copy "meow" five times in this
-    brute-force way. But the whole point is to do it
+    Okay, so obviously I could copy "meow" five times in
+    this brute-force way. But the whole point is to do it
     programatically as if I were really compiling several
     words (functions) together into a larger word.
 
-    Couple nights later: dsscovered the '$' preprocessor
+    Couple nights later: disscovered the '$' preprocessor
     symbol in NASM for the current address, so using that
     for handier routine length calculations at the very
     end of the routine:
@@ -90,6 +90,135 @@ Meow.
             ...
         %assign meow_len ($ - print_meow)
 
-    Now I'm down to 1 meow, bu that's okay. Progress
+    Now I'm down to 1 meow, but that's okay. Progress
     is slow and steady and my computing environment keeps
-    getting handier.
+    getting better. I've been reading nasmdoc.txt.
+
+    I've also been reviewing the basics and learning more
+    i386 assembly (basic 32-bit x86) from a great book
+    called
+
+        Programming from the Ground Up
+            by Jonathan Bartlett
+
+    Which, among other things, has helped me understand
+    _why_ you might want to choose one of the more
+    complicated i386 addressing modes.
+
+    Okay, next night. Baby steps and a lot of review (like,
+    I've gotten a little rusty with GDB too!). Here I'm
+    stepping through the simple copy-and-run program.
+
+    (Note that I edit the GDB sessions here for readability
+    and take out a fair amount of typos and redundant stuff
+    that I think would detract from understanding.)
+
+    I've already set register EDI to the first "destination"
+    address in my BSS segment where I'll inline ("compile")
+    my words (or "functions" or "routines"):
+
+(gdb) display/x $edi
+1: /x $edi = 0x804a00c
+
+    First we copy the meow word:
+
+74	    mov esi, print_meow   ; source
+75	    mov ecx, meow_len     ; bytes to copy
+76	    rep movsb             ; copy!
+1: /x $edi = 0x804a022
+
+    I was going to update my "here" pointer to the address
+    right after the copied meow, but I realized that EDI was
+    already there (and nothing was going to disturb it), so
+    why not just leave it alone and compile the exit word?
+    Here goes:
+
+80	    mov esi, happy_exit   ; source
+81	    mov ecx, exit_len ; len
+82	    rep movsb ; copy ecx bytes
+1: /x $edi = 0x804a02e
+
+    Looks good. So EDI now points at the next address after
+    the copied exit word.
+
+    (I probably shouldn't rely on EDI to always point to the
+    next destination address for inlined code, thoug. Other
+    so-called "string" instructions probably change it. So I
+    should probabbly use my "here" pointer like I'd
+    planned.)
+
+    Now if that was copied correctly, we can jump to it and
+    it'll print "Meow." as expected:
+
+85	    jmp data_segment
+(gdb) s
+0x0804a00c in data_segment ()
+(gdb) c
+Continuing.
+Meow.
+[Inferior 1 (process 1391) exited normally]
+
+    Baby steps to doing this programatically. The next one
+    is creating an inline routine to do the copying:
+
+        ; inline function!
+        ;   input: esi - word start source address
+        ;   input: ecx - word length
+        inline:
+            mov edi, [here] ; destination
+            rep movsb
+            add edi, ecx    ; update here pointer...
+            mov [here], edi ; ...and store it
+            ret
+
+    Now the "here" pointer to the data segment for my
+    "compiled" program is handled automatically.
+
+    Calling this is simple. Here's inlining a copy of Meow.
+    The exit one is identical except for the labels:
+
+        ; inline meow into the program:
+        mov esi, print_meow   ; source
+        mov ecx, meow_len     ; bytes to copy
+        call inline
+
+    It works:
+
+Meow.
+
+    I think I'll inline five meows in a loop and call this
+    initial test a success:
+
+            ; inline five meows
+            mov eax, 5 ; 5 meows
+        inline_a_meow:
+            mov esi, print_meow   ; source
+            mov ecx, meow_len     ; bytes to copy
+            call inline
+            dec eax
+            jnz inline_a_meow
+
+    Feeling foolishly confident, I'm going to skip the
+    debugger and just build and run it this time:
+
+dave@cygnus~/meow5$ mrun
+Meow.
+Meow.
+Meow.
+Meow.
+Meow.
+
+    No way! I can still write a simple loop all on my own. I
+    guess this still really is sinking in and I really am
+    retaining it. Neat!
+
+    Well, this has hardly taken any time at all. The vast
+    majority of my evenings have been spent setting up this
+    laptop's environment to make it as easy as possible to
+    hop in and add a little bit each night.
+
+    The next task, which I'll start in log02.txt, will be to
+    store my words with some sort of header so they can be
+    looked up by name and so I don't have to manually create
+    and name the length calculations for every word in the
+    assembly source!

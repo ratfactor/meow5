@@ -10,16 +10,6 @@
 ;         A very conCATenative language
 ; -----------------------------------------------
 
-;EAX: The accumulator/return val
-;EBX: often for pointers
-;ECX: often for counters
-;EDX: whatever
-;ESI: The source index for string operations.
-;EDI: The destination index for string operations.
-;EBP: pointer to current fn stack frame base
-;ESP: pointer to current fn stack frame top
-;EIP: instruction pointer!
-
 %assign STDIN 0
 %assign STDOUT 1
 %assign STDERR 2
@@ -35,6 +25,9 @@ end_meow:
 
 section .bss
 ; -----------------------------------------------
+here: resb 4 ; pointer to current spot
+
+; This is where the "compiled" program goes!
 data_segment: resb 1024 
 
 
@@ -46,7 +39,6 @@ happy_exit:
 exit:
     mov eax, SYS_EXIT
     int 0x80
-;end_exit:
 %assign exit_len ($ - happy_exit)
 
 print_meow:
@@ -57,25 +49,41 @@ print_meow:
     int 0x80
 %assign meow_len ($ - print_meow)
 
+; inline function!
+;   input: esi - word start source address
+;   input: ecx - word length
+inline:
+    mov edi, [here] ; destination
+    rep movsb
+    add edi, ecx    ; update here pointer...
+    mov [here], edi ; ...and store it
+    ret
+
 ; Start!
 global _start
 _start:
     cld    ; use increment order for certain cmds
 
-    ; The First Test - Can I copy a meow?
+    ; Here points to the current spot where we're
+    ; going to inline ("compile") the next word.
+    mov dword [here], data_segment
 
-    ; copy meow printing code
-    mov edi, data_segment ; destination
+    ; "Compile" the program!
+    ; inline five meows
+    mov eax, 5 ; 5 meows
+inline_a_meow:
     mov esi, print_meow   ; source
     mov ecx, meow_len     ; bytes to copy
-    rep movsb             ; copy!
+    call inline
+    dec eax
+    jnz inline_a_meow
 
-    ; copy exit code
-    mov edi, (data_segment+meow_len) ; destination
-    mov esi, happy_exit   ; source
-    mov ecx, exit_len ; len
-    rep movsb ; copy ecx bytes
+    ; inline exit
+    mov esi, happy_exit
+    mov ecx, exit_len
+    call inline
 
-    ; jump to the copied code!
+    ; Run!
+    ; jump to the "compiled" program
     jmp data_segment
 
