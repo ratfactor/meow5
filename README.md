@@ -1,5 +1,7 @@
 # Meow5: "Meow. Meow. Meow. Meow. Meow."
 
+Note: This is a super early work in progress. Check the `log*.txt` files to see where I'm currently at! (Spoiler: the inlining part seems viable!)
+
 A Forth-like language that is conCATenative in two ways:
 
 1. "Point free" data flow
@@ -28,10 +30,6 @@ nomenclature, the following word "meow5"...:
 ...will be literally composed of five copies
 of the machine code that makes the word "meow". Crazy, right?
 
-This repo is a primitive work in progress, and proof of concept. 
-
-To follow along, read the logNN.txt files in this repo. I'll be writing notes
-as I go along, which helps me keep track of my progress over time.
 
 
 ## Why?
