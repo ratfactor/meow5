@@ -19,26 +19,84 @@
     traditional Forths, since that's what I learned how to
     implement in my JONESFORTH port, nasmjf.
 
+    Note: I added design-notes.txt to this repo because I
+          have been having some on-going thoughts about how
+          to implement this program as a whole, but they're
+          not things I can act upon right away and I don't
+          want to have to come back here searching in these
+          logs to find them (or worse, forget about them
+          entirely!)
 
+    Okay, now I've got #1 from above list working. Instead
+    of a "header", I've got "tails" at the end of my words.
+    Ha ha, cats have tails. So this just keeps getting
+    better.
 
+    I did it that way because then it becomes trivial to get
+    the length of the machine code. Here's the definition of
+    the exit word now, with its tail:
 
+        exit:
+            mov ebx, 0 ; exit with happy 0
+            mov eax, SYS_EXIT
+            int 0x80
+        exit_tail:
+            dd 0 ; null link is end of linked list
+            dd (exit_tail - exit) ; len of machine code
+            db "exit", 0 ; name, null-terminated
 
-        For the moment, I'm going to keep this floating here
-        at the bottom of this log to remind me that I need
-        to figure out how I want to use registers in this
-        program. Typical usage notes:
+    So now I don't have to give the length of the word's
+    machine code to inline anymore, just the tail address.
+    inline gets the stored length and does all the rest!
 
-        EAX: The accumulator/return val
-        EBX: often for pointers
-        ECX: often for counters
-        EDX: whatever
-        ESI: The source index for string operations.
-               JF used ESI for NEXT word address pointer
-        EDI: The destination index for string operations.
-        EBP: pointer to current fn stack frame base
-               JF used EBP as Return stack pointer ("RSP")
-        ESP: pointer to current fn stack frame top
-               JF used the stack as THE parameter stack
-        EIP: instruction pointer!
+    Here's the new inline:
 
+        ; inline function!
+        ;   input: esi - tail of the word to inline
+        inline:
+            mov edi, [here]    ; destination
+            mov ecx, [esi + 4] ; get len into ecx
+            sub esi, ecx       ; sub len from  esi (start of code)
+            rep movsb ; movsb copies from esi to esi+ecx into edi
+            add edi, ecx       ; update here pointer...
+            mov [here], edi    ; ...and store it
+            ret
+
+    Still not too complicated. And I think this might even
+    be its final form?
+
+    Let's see if this works...
+
+Program received signal SIGSEGV, Segmentation fault.
+inline () at meow5.asm:67
+67	    rep movsb
+
+    Darn it.
+
+    Oh, wait! It was inlining the meows just fine, it was
+    doing exit that failed. I simply hadn't updated it to
+    point to the tail yet. Simple mistake:
+
+        ; inline exit
+        mov esi, exit   <---- oops!
+        call inline
+
+    needs to be:
+
+        ; inline exit
+        mov esi, exit_tail
+        call inline
+
+    How about now...
+
+$ mrun
+Meow.
+Meow.
+Meow.
+Meow.
+Meow.
+
+    Awesome! Guess I can start making it find words by ASCII
+    name in the tails, searching by linked list. Very
+    exciting progress tonight!
 

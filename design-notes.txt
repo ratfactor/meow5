@@ -1,0 +1,71 @@
+Just some quick notes to self for now - just trying not
+to forget what I woke up with in my head!
+
+write header AFTER the word (to make it dirt-simple
+to calc length of machine instructions and write it there)
+
+use linked list like i learned how to implement in jonesforth
+
+get as quickly as possible to
+
+    : meow5 meow meow meow meow meow ;
+
+first compound word after meow5 could be:
+
+    : exit0 0 exit ;
+
+have explicit interpret-time vs comp-time context words.
+
+Regular interpret-time:
+
+    : foo 1 2 add ;
+
+Compile-time:
+
+    :comp if ... ;
+
+And when searching, we can skip any words that don't
+match:
+
+    * name length
+    * name
+    * context (compile or interpret)
+
+Which ALSO means that we can define two different words
+with the same 
+
+Use stack for all word param passing - don't
+get fancy with trying to keep track of registers
+with this proof of concept!!!
+
+How hard is it to write an elf executable? it would
+be super cool to be able to write any compiled word
+straight to disk as a tiny, self-contained executable!
+Especially when done right from the interpreter REPL.
+I bet not many languages have *that* feature! (I don't
+know of any).
+
+
+Register Usage
+--------------
+
+Typical usage notes (JF = JONESFORTH)
+
+    EAX: The accumulator/return val
+    EBX: often for pointers
+    ECX: often for counters
+    EDX: whatever
+    ESI: The source index for string operations.
+           JF used ESI for NEXT word address pointer
+    EDI: The destination index for string operations.
+    EBP: pointer to current fn stack frame base
+           JF used EBP as Return stack pointer ("RSP")
+    ESP: pointer to current fn stack frame top
+           JF used the stack as THE parameter stack
+    EIP: instruction pointer!
+
+Hmmm... as much as possible, I'll use the stack and
+other in-memory pointers to avoid having to think about
+explicit registers as much as possible. Certainly some
+of the ones needed for a traditional "threaded interpreted"
+Forth won't be needed for Meow5!

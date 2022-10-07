@@ -19,9 +19,9 @@
 
 section .data
 ; -----------------------------------------------
-meow:
+meow_str:
     db `Meow.\n`
-end_meow:
+end_meow_str:
 
 section .bss
 ; -----------------------------------------------
@@ -34,29 +34,36 @@ data_segment: resb 1024
 section .text
 ; -----------------------------------------------
 
-happy_exit:
-    mov ebx, 0 ; exit with happy 0
 exit:
+    mov ebx, 0 ; exit with happy 0
     mov eax, SYS_EXIT
     int 0x80
-%assign exit_len ($ - happy_exit)
+exit_tail:
+    dd 0 ; null link is end of linked list
+    dd (exit_tail - exit) ; len of machine code
+    db "exit", 0 ; name, null-terminated
 
-print_meow:
+meow:
     mov ebx, STDOUT
-    mov ecx, meow              ; str start addr
-    mov edx, (end_meow - meow) ; str length
+    mov ecx, meow_str              ; str start addr
+    mov edx, (end_meow_str - meow_str) ; str length
     mov eax, SYS_WRITE
     int 0x80
-%assign meow_len ($ - print_meow)
+meow_tail:
+    dd exit_tail ; exit is previous word
+    dd (meow_tail - meow)
+    db "meow", 0
+
 
 ; inline function!
-;   input: esi - word start source address
-;   input: ecx - word length
+;   input: esi - tail of the word to inline
 inline:
-    mov edi, [here] ; destination
-    rep movsb
-    add edi, ecx    ; update here pointer...
-    mov [here], edi ; ...and store it
+    mov edi, [here]    ; destination
+    mov ecx, [esi + 4] ; get len into ecx
+    sub esi, ecx       ; sub len from  esi (start of code)
+    rep movsb ; movsb copies from esi to esi+ecx into edi
+    add edi, ecx       ; update here pointer...
+    mov [here], edi    ; ...and store it
     ret
 
 ; Start!
@@ -72,15 +79,13 @@ _start:
     ; inline five meows
     mov eax, 5 ; 5 meows
 inline_a_meow:
-    mov esi, print_meow   ; source
-    mov ecx, meow_len     ; bytes to copy
+    mov esi, meow_tail   ; source
     call inline
     dec eax
     jnz inline_a_meow
 
     ; inline exit
-    mov esi, happy_exit
-    mov ecx, exit_len
+    mov esi, exit_tail
     call inline
 
     ; Run!
