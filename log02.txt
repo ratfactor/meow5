@@ -7,11 +7,11 @@
     I'll use the Forth term "word" to refer to the functions
     we create in this language).
 
-        1. Look up word length from header so it doesn't
+       [x] Look up word length from header so it doesn't
            have to be manually created and sent to the
            inline function.
 
-        2. Look up word by stored ASCII  name in header at
+       [x] Look up word by stored ASCII  name in header at
            runtime. That'll be exciting. I'll practically
            have a programming language at that point.
 
@@ -100,3 +100,435 @@ Meow.
     name in the tails, searching by linked list. Very
     exciting progress tonight!
 
+    I've got two more todos:
+
+        [x] Add tails to anything that should be a word
+
+        [ ] Make all words take params from the stack, not
+            from pre-defined registers. Yes, we're losing
+            some speed by going to main memory, but I have
+            a feeling the stack is surely in CPU cache most
+            of the time? I should look that up someday...
+
+    So I'm going to call my word that looks up other words
+    by string name by searching through a linked list of
+    words 'find', just like in Forth. (Well, except there
+    it's FIND, of course.)
+
+    Two nights later: I've written the 'find' word and added
+    tails to all of my words so far. But I've got a
+    segfault:
+
+dave@cygnus~/meow5$ mr
+./build.sh: line 33:  1966 Segmentation fault      ./$F
+
+	So it's GDB time:
+
+dave@cygnus~/meow5$ mb
+Reading symbols from meow5...
+    ...
+143	    push temp_meow_name ; the name string to find
+144	    call find           ; answer will be in eax
+81	    pop eax ; first param from stack!
+84	    mov ecx, [last]
+86	    cmp ecx, 0  ; a null pointer (0) is end of list
+87	    je .not_found
+93	    lea edx, [ecx + 8] ; set dictionary name pointer
+94	    mov ebx, eax      ; (re)set name to find pointer
+
+	Okay, so here's where I'm comparing the search string to
+    be found against the first (well, last) word's name in
+	the linked list ("dictionary"). So let's see if I got
+	the name from the dictionary entry's "tail" correctly.
+
+	Oh, and here's my comment block from 'find' explaining
+	the register use:
+
+		; input:
+		;   stack -> eax
+		; register use:
+		;   eax - start of null-terminated name to find
+		;   ebx - name to find byte pointer
+		;   ecx - dictionary list pointer
+		;   edx - dictionary name byte pointer
+
+	The first thing in the tail should be a link to the next
+	word in the dictionary. The ecx register should have that
+	link:
+
+(gdb) x/a $ecx
+0x804908d <find_tail>:	0x8049052 <inline_tail>
+
+	Yup! That's right. The next word is 'inline'.
+
+	The next thing is the length of the word's machine code:
+
+(gdb) x/dw $ecx+4
+0x8049091:	39
+
+	39 bytes seems reasonable. Okay, the next thing should be
+	the null-terminated string of the word name:
+
+(gdb) x/s $ecx+8
+0x8049095:	"find"
+
+	Yes!
+
+	And have I correctly pointed to the first byte of this
+	string in the edx register?
+
+(gdb) x/s $edx
+0x8049095:	"find"
+
+	Wow, also yes!
+
+	Okay, so the next thing to confirm is that I have the
+	address of the string to match in register eax:
+
+(gdb) x/a $eax
+0x80490c1 <inline_a_meow+10>:	0x74e8308b
+
+	Oops! That's not right. That's an address somewhere in my
+	loop that inlines meow five times...
+
+	I see it now!
+
+143	    push temp_meow_name ; the name string to find
+144	    call find           ; answer will be in eax
+81	    pop eax ; first param from stack!
+
+	I forgot that 'call' will push the return address onto
+	the stack. Which is why I can't just pop my parameter.
+
+	I need to use the stack pointer and an offset to get the
+	value...
+	
+	I use arrays as stacks all the time in higher level
+	languages, so a PUSH and POP are second nature to me.
+	But I must confess that in an assembly language context,
+	I get super confused by terms like "top", "bottom" and
+	"low" and "high".
+	
+	So I prefer to make all of this SUPER CONCRETE. Here's
+	my own personal explanation:
+
+		push eax ; containing 0xAAA
+		push ebx ; containing 0xBBB
+		push ecx ; containing 0xCCC
+		push edx ; containing 0xDDD
+		pop edx
+		pop ecx
+
+			The Stack:
+			----------
+			0xAAA  <-- esp + 4
+			0xBBB  <-- esp
+			0xCCC  <-- esp - 4
+			0xDDD  <-- esp - 8
+
+	Heck, I'm gonna verify that for myself right now with
+	all of you watching:
+
+(gdb) s
+125	mov eax, 0xAAA
+126	mov ebx, 0xBBB
+127	mov ecx, 0xCCC
+128	mov edx, 0xDDD
+129	push eax
+130	push ebx
+131	push ecx
+132	push edx
+133	pop edx
+134	pop ecx
+(gdb) x $esp + 4
+0xffffd77c:	0x00000aaa
+(gdb) x $esp
+0xffffd778:	0x00000bbb
+(gdb) x $esp - 4
+0xffffd774:	0x00000ccc
+(gdb) x $esp - 8
+0xffffd770:	0x00000ddd
+
+	Whew! At least I've got that much right. :-)
+
+	So my fix is this:
+
+		mov eax, [esp + 4] ; first param from stack!
+	
+	And now let's see what we've got in eax:
+
+(gdb) x/a $eax
+0x804a006 <temp_meow_name>:	0x776f656d
+
+	Perfect. And $ebx should be the same to begin with:
+
+(gdb) x/a $ebx
+0x804a006 <temp_meow_name>:	0x776f656d
+
+	Yup. Good so far.
+
+	...wait. This next line isn't right:
+
+96	    cmp edx, ebx
+
+	What am I doing? I'm comparing the two addresses here,
+	not the characters they point to. Even worse, I can't
+	compare two pointed-to *values* at the same time. I need
+	to actually store at least one of the two *values* to
+	compare in a register!
+
+	Sheesh. Lemme fix this up. Okay, so here's the new
+	register use, which I'm trying to make as conventional
+	as I know how...
+
+		; register use:
+		;   al  - to-find name character being checked
+		;   ebx - start of dict word's name string
+		;   ecx - byte offset counter (each string character)
+		;   edx - dictionary list pointer
+		;   ebp - start of to-find name string
+
+	And the code has changed quite a bit, so I'm gonna step
+	through it again:
+
+(gdb) s
+146	    push temp_meow_name ; the name string to find
+147	    call find           ; answer will be in eax
+find () at meow5.asm:80
+80	    mov ebp, [esp + 4] ; first param from stack!
+83	    mov edx, [last]
+find.test_word () at meow5.asm:85
+85	    cmp edx, 0  ; a null pointer (0) is end of list
+86	    je .not_found
+92	    lea ebx, [edx + 8] ; set dict. word name pointer
+93	    mov ecx, 0         ; reset byte offset counter
+
+	Okay, first the ebx register should now point to the
+	current dictionary word's name that we're gonna test:
+
+(gdb) x/s $ebx
+0x804909f:	"find"
+
+	Good.
+
+	And the ebp register should point to the to-find name:
+
+(gdb) x/s $ebp
+0x804a006 <temp_meow_name>:	"meow"
+
+	Good.
+
+find.compare_names_loop () at meow5.asm:95
+95		mov al, [ebp + ecx] ; get next to-find name byte
+96	    cmp al, [ebx + ecx] ; compare with next dict word byte
+
+	Now the character in byte register al should be the first
+	one from the to-find name "meow":
+
+(gdb) p/c $al
+$2 = 109 'm'
+
+	Good.
+
+	And the character pointed to by ebx+ecx should be the
+	first one from the dict word "find":
+
+(gdb) x/c $ebx+$ecx
+0x804909f:	102 'f'
+
+	Good.
+
+	And since these don't match, the jump should take us to
+	the next word...
+
+97	    jne .try_next_word  ; found a mismatch!
+find.try_next_word () at meow5.asm:102
+102	    mov ecx, [ecx]   ; follow the tail! (linked list)
+Program received signal SIGSEGV, Segmentation fault.
+
+	Oh, right. Silly me. I'm storing the dictionary word
+	links in the edx register now, not ecx! I missed this
+	one...
+
+	Okay, how about now?
+
+find.try_next_word () at meow5.asm:103
+103	    mov edx, [edx]   ; follow the tail! (linked list)
+(gdb) x/a $edx
+0x8049097 <find_tail>:	0x8049052 <inline_tail>
+(gdb) s
+104	    jmp .test_word
+
+	That's better. Let's see if we're testing "meow" vs
+	"inline" now (well, 'm' vs 'i'):
+
+(gdb) p/c $al
+$1 = 109 'm'
+(gdb) x/c $ebx+$ecx
+0x804905a:	105 'i'
+
+	Good!
+
+	And the next word should be "meow", so 'm' vs 'm':
+
+(gdb) p/c $al
+$2 = 109 'm'
+(gdb) x/c $ebx+$ecx
+0x8049037:	109 'm'
+98	    jne .try_next_word  ; found a mismatch!
+99	    cmp al, 0           ; both hit 0 terminator at same time
+100	    je .found_it
+find.try_next_word () at meow5.asm:103
+103	    mov edx, [edx]   ; follow the tail! (linked list)
+
+	What? 
+
+	Oh. <facepalm> It just dropped through. I forgot the
+
+		jmp .compare_names_loop
+	
+	at the end of my loop...
+
+	I'll spare you the second go where I had an infinite loop
+	because I had *also* forgotten to increment the ecx
+	register to check the next letter in the strings...
+
+	Okay, and now?
+
+Reading symbols from meow5...
+(gdb) break 97
+Breakpoint 1 at 0x8049081: file meow5.asm, line 97.
+1: /c $al = <error: No registers.>
+(gdb) r
+Starting program: /home/dave/meow5/meow5
+Breakpoint 1, find.compare_names_loop () at meow5.asm:97
+97	    cmp al, [ebx + ecx] ; compare with next dict word byte
+(gdb) display /c *($ebx + $ecx)
+(gdb) display /c $al
+1: /c $al = 109 'm'
+2: /c *($ebx + $ecx) = 102 'f'
+(gdb) c
+Continuing.
+Breakpoint 1, find.compare_names_loop () at meow5.asm:97
+97	    cmp al, [ebx + ecx] ; compare with next dict word byte
+1: /c $al = 109 'm'
+2: /c *($ebx + $ecx) = 105 'i'
+...
+1: /c $al = 109 'm'
+2: /c *($ebx + $ecx) = 109 'm'
+...
+1: /c $al = 101 'e'
+2: /c *($ebx + $ecx) = 101 'e'
+...
+1: /c $al = 111 'o'
+2: /c *($ebx + $ecx) = 111 'o'
+...
+1: /c $al = 119 'w'
+2: /c *($ebx + $ecx) = 119 'w'
+...
+1: /c $al = 0 '\000'
+2: /c *($ebx + $ecx) = 0 '\000'
+(gdb) c
+Continuing.
+
+Program received signal SIGSEGV, Segmentation fault.
+inline_a_meow () at meow5.asm:152
+152	    mov esi, [eax]      ; putting directly in reg for now
+
+	Yay! (Not the segfault, but the apparent correct matching
+	of the strings.)
+
+	Now let's see what's happening once we get a match,
+	because clearly eax is not getting returned with a valid
+	word tail address...
+
+(gdb) break find.found_it 
+...
+Breakpoint 1, find.found_it () at meow5.asm:113
+113	    mov eax, ecx  ; pointer to tail of dictionary word
+
+	Gah! I see it. Another ecx that should be an edx. I
+	could have sworn I searched for these...
+
+Reading symbols from meow5...
+(gdb) break find.found_it
+Breakpoint 1 at 0x8049097: file meow5.asm, line 113.
+(gdb) r
+Starting program: /home/dave/meow5/meow5
+
+Breakpoint 1, find.found_it () at meow5.asm:113
+113	    mov eax, edx  ; pointer to tail of dictionary word
+(gdb) p/a $edx
+$1 = 0x804902f <meow_tail>
+
+	That's better. So yeah, we definitely found the meow
+	word by string. Very cool. Let's see what happens next...
+
+(gdb) s
+114	    ret           ; (using call/ret for now)
+(gdb)
+inline_a_meow () at meow5.asm:152
+152	    mov esi, [eax]      ; putting directly in reg for now
+(gdb)
+153	    call inline
+(gdb)
+inline () at meow5.asm:62
+62	    mov edi, [here]    ; destination
+
+	Yes, very nice...
+
+Breakpoint 1, find.found_it () at meow5.asm:113
+Breakpoint 1, find.found_it () at meow5.asm:113
+Breakpoint 1, find.found_it () at meow5.asm:113
+Breakpoint 1, find.found_it () at meow5.asm:113
+
+	That's four more 'meow's getting inlined...
+
+Breakpoint 1, find.found_it () at meow5.asm:113
+
+	That's the 'exit'...
+
+113	    mov eax, edx  ; pointer to tail of dictionary word
+(gdb) c
+Continuing.
+
+Program received signal SIGSEGV, Segmentation fault.
+inline () at meow5.asm:63
+63	    mov ecx, [esi + 4] ; get len into ecx
+
+	Wait, how did esi get the wrong value?
+
+	Oh jeez, I have these brackets around eax here:
+
+		mov esi, [eax]      ; putting directly in reg for now
+	
+	But I want the address in eax, not the value it's pointing
+	to. Yet another easy fix:
+
+		mov esi, eax      ; putting directly in reg for now
+
+	You know what? I feel like this should be good now.
+
+	Let's do this:
+
+dave@cygnus~/meow5$ mr
+Meow.
+Meow.
+Meow.
+Meow.
+Meow.
+
+	Yes!
+
+	I'm now able to find words by string name in the
+	dictionary and "compile" them into memory and run them.
+
+	The only TODO "checkbox" I didn't check in this log was
+	this one:
+
+        [ ] Make all words take params from the stack, not
+            from pre-defined registers.
+
+	Which should be no problem. That'll be a nice easy way
+	to start the next log, so I'll see you in log03.txt
+	with that!

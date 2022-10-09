@@ -52,6 +52,20 @@ I kept thinking, "how far could I get if I just inlined _everything_?" As in,
 actually made a copy of every word's machine instructions every time it is
 "compiled".
 
+In the name of simplicity, I'm also avoiding too many
+assembly tricks or any attempt at optimization (that stuff is
+really fun, but I find it too distracting from making this
+proof-of-concept). So, for example, I'll use:
+
+    mov eax, 0
+
+instead of the shorter (when assembled)  instruction:
+
+    xor eax, eax
+
+because the intent is clearer at a glance.
+
+
 ## Psuedocode examples
 
 Given these pseudo machine code definitions:

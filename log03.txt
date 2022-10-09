@@ -1,0 +1,21 @@
+    I left myself a nice easy one to start this log:
+
+        [ ] Make all words take params from the stack, not
+            from pre-defined registers.
+
+
+
+
+
+	---------------------------------------------------------
+    NOTE: I'm still using call/ret to use the 'find' and
+    'inline' words when the program initially runs. I've got
+    a bit of a chicken-and-egg problem here because without
+    a return, these won't seamlessly move on to the next
+    instructions when they're done and I can't find or
+    inline them because THEY are 'find' and 'inline'!
+
+    I feel like that will be solved when I've got more of
+    the interpreter or REPL in place. If not, I've got a
+    puzzle on my hands. For the moment, things are just a
+	bit...messy.
