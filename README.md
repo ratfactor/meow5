@@ -84,7 +84,7 @@ this Forth-like word definition:
 
 would compile as:
 
-   2foo: 
+    2foo: 
         00A 00B
         00C 00D
         00A 00B
