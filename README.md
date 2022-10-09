@@ -22,6 +22,7 @@ In the **inlined function** sense: all functions (and entire programs) are
 concatenated copies of other functions.
 
 The first "point-free" sense is true of any Forth-like ("stack-based") language.
+
 The second sense is what's unique about Meow5. Using Forth notation and
 nomenclature, the following word "meow5"...:
 
