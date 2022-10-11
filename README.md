@@ -1,6 +1,8 @@
 # Meow5: "Meow. Meow. Meow. Meow. Meow."
 
-Note: This is a super early work in progress. Check the `log*.txt` files to see where I'm currently at! (Spoiler: the inlining part seems viable!)
+Note: This is a super early work in progress. Check the `log*.txt` files to see where I'm currently at!
+
+*Update:* Finding words by name, inlining them, and executing the program works.
 
 A Forth-like language that is conCATenative in two ways:
 

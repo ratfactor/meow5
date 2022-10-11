@@ -1,21 +1,260 @@
     I left myself a nice easy one to start this log:
 
-        [ ] Make all words take params from the stack, not
+        [x] Make all words take params from the stack, not
             from pre-defined registers.
 
+    Which ought to be simple: just push the values
+    I need before calling the function. Then have
+    the function pop the values into the registers
+    and off we go.
+
+    +----------------------------------------------------+
+    |   NOTE: I'm still using call/ret to use the        |
+    |   'find' and 'inline' words when the program       |
+    |   initially runs. I've got a bit of a              |
+    |   chicken-and-egg problem here because without a   |
+    |   return, these won't seamlessly move on to the    |
+    |   next instructions when they're done and I        |
+    |   can't find or inline them because THEY are       |
+    |   'find' and 'inline'!                             |
+    |                                                    |
+    |   I feel like that will be solved when I've got    |
+    |   more of the interpreter or REPL in place. If     |
+    |   not, I've got a puzzle on my hands. For the      |
+    |   moment, things are just a bit...messy.           |
+    +----------------------------------------------------+
+
+    Well, I thought that was going to be easy. I mean, it is
+    pretty easy. But it has a few snags I hadn't yet
+    considered.
+
+    It turns out, using the same stack for call/ret return
+    address storage AND for passing values between functions
+    in a truly concatenative manner gets real complicated
+    real quick. And since I was using call/ret temporarily
+    anyway, I have zero desire to do anything fancy to make
+    it work.
+
+    So I'm going to basically do my own return by storing a
+    return address and jumping to it at the end of both
+    'inline' and 'find'.
+
+    I'm making a new variable in BSS to hold my return
+    address. I only need one, not a stack, because I'm not
+    making any nested calls.
+
+        temp_return_addr: resb 4
+
+    I'll put in a mockup of the code to get the assembled
+    instruction lengths right (I hope) so I can figure out
+    the address we just jump back to as a "return". (I'm
+    pretty sure I can't just store the instruction pointer
+    register because that'll be a point before the "call"
+    jump and then I'll have an infinite loop, right?)
+
+    I'll use NASM's listing feature for that. It comes out
+    super wide (well, compared to the 60 columns I give
+    myself on my little split screen setup!), so I'll see if
+    I can reformat it enough to fit here:
 
 
+152 00DA 68[0600]         push temp_meow_name
+153 00DD 66C706[0904]-    mov dword [temp_return_addr], $
+153 00E2 [DD000000]
+154 00E6 EB8A             jmp find
+155 00E8 6650             push eax
+
+    The listing is so fun to look at and I find it almost
+    fetishisticly beautiful. I mean, I've had all of these
+    _questions_ about how all of this actually works and
+    here, if you can read them, are all of the _answers_. I
+    mean, I know the CPU still has secrets down below even
+    this machine code layer. But for the application
+    programmer, this is _it_. This is the bedrock upon which
+    we lay all of our hopes and dreams. In the hex column on
+    the left are the real instructions, no longer hidden by
+    mnemonics or symbols.
+
+    Anyway, where was I?
+
+    Oh, yeah, so '$' is NASM for "the address at the
+    beginning of this line". Which is very handy. And that's
+    exactly what's gonna be put into temp_return_addr:
+
+        0904 is big-endian for temp_return_addr at 0408
+             (which I could see further up my listing)
+
+        DD000000 is the address returned by $
+                 (again, in big-endian)
+
+    And assuming the assembled code won't change, it looks
+    like I want my return address to be an additional...
+
+        E8 - DD
+
+    ...bytes. Which, uh, I'll ask my cat to subtract for me.
+    
+    Hmm. No, he purred, but was not forthcoming with the
+    answer. Okay, how about dc?
+
+        $ dc
+        16 i
+        e8 dd - p
+        dc: 'e' (0145) unimplemented
+        E8 DD - p
+        11
+
+    Okay, so dc hissed at me once for not entering the hex
+    values in upper case. So score one point for my cat. But
+    then it gave me the correct answer after that, so score
+    one point for dc. Looks like this match is even.
+
+    So I wanna add 11 bytes to my return addresses.
+
+    Here's the new listing:
+
+153 00DD 66C706[0904]-    mov dword [temp_return_addr], ($ + 11)
+153 00E2 [E8000000]
+154 00E6 EB8A             jmp find 
+155 00E8 6650             push eax 
+
+    Looks right to me, we want to jump ("ret") back to 00E8
+    after the jump ("call") to find.
+
+    Of course, this seems super fragile, but it's also super
+    temporary. Let's just see if it works...
+
+    Okay, dang it, a segfault. My changes have required
+    another change and now the addresses are a little
+    different, but the 11 bytes should still be the same:
+
+154 000000DF 66C706[0904]- mov dword [temp_return_addr], ($ + 11)
+154 000000E4 [EA000000]         
+155 000000E8 EB88          jmp find
+156 000000EA 6650          push eax
+
+    Let's try it now:
+
+(gdb) break find.found_it 
+Breakpoint 1, find.found_it () at meow5.asm:116
+116	    mov eax, edx  ; pointer to tail of dictionary word
+(gdb) p/a $edx
+$1 = 0x8049030 <meow_tail>
+
+	So far so good. Now the return jump?
+
+(gdb) s
+117	    jmp [temp_return_addr]
+(gdb) p/a (int)temp_return_addr 
+$2 = 0x80490df <inline_a_meow+16>
+
+	And just where might that be, exactly?
 
 
-	---------------------------------------------------------
-    NOTE: I'm still using call/ret to use the 'find' and
-    'inline' words when the program initially runs. I've got
-    a bit of a chicken-and-egg problem here because without
-    a return, these won't seamlessly move on to the next
-    instructions when they're done and I can't find or
-    inline them because THEY are 'find' and 'inline'!
+0x080490d4 <+5>:	c7 05 19 a4 04 08 df 90 04 08	movl
+                                           $0x80490df, 0x804a419
+0x080490de <+15>:	eb 88	jmp    0x8049068 <find>
+0x080490e0 <+17>:	50	push   %eax
+0x080490e1 <+18>:	e8 57 ff ff ff	call   0x804903d <inline>
 
-    I feel like that will be solved when I've got more of
-    the interpreter or REPL in place. If not, I've got a
-    puzzle on my hands. For the moment, things are just a
-	bit...messy.
+	Hmmm...looks off by 1. 0x80490df points to the second
+    byte of the jmp find instruction...
+
+Program received signal SIGSEGV, Segmentation fault.
+0x080490df in inline_a_meow () at meow5.asm:155
+155	    jmp find           ; answer will be in eax
+
+    Yeah. So... 12 bytes?
+
+(gdb) break find.found_it 
+Breakpoint 1, find.found_it () at meow5.asm:116
+116	    mov eax, edx  ; pointer to tail of dictionary word
+(gdb) s
+117	    jmp [temp_return_addr]
+(gdb) s
+inline_a_meow () at meow5.asm:156
+156	    push eax            ; put it on the stack for inline
+
+	Yes! But that was evidently even _more_ fragile than I'd
+    expected. So I'll just bit the bullet and hold my nose
+    and use some temporary labels. It's still quite
+    compact, so I'll just paste it here:
+
+
+            push temp_meow_name ; the name string to find
+            mov dword [temp_return_addr], t1
+            jmp find           ; answer will be in eax
+        t1: push eax            ; put it on the stack for inline
+            mov dword [temp_return_addr], t2
+            jmp inline
+        t2: dec byte [meow_counter]
+            jnz inline_a_meow
+
+            ; inline exit
+            push temp_exit_name ; the name string to find
+            mov dword [temp_return_addr], t3
+            jmp find           ; answer will be in eax
+        t3: push eax            ; put it on the stack for inline
+            mov dword [temp_return_addr], t4
+            jmp inline
+        t4:
+            ; Run!
+            push 0           ; push exit code to stack for exit
+            jmp data_segment ; jump to the "compiled" program
+
+    Does it work?
+
+dave@cygnus~/meow5$ mr
+Meow.
+Meow.
+Meow.
+Meow.
+Meow.
+
+    Yes!
+
+    One last thing, now - 'find' is still leaving its answer
+    in the eax register. If I have it push the answer to the
+    stack instead, 'inline' will pop it and have what it
+    needs - no need for that "push eax" beween the two
+    functions/words (at labels t1 and t3 above).
+
+    Now find.not_found and find.found_it push their return
+    values on the stack:
+
+        .not_found:
+            push 0   ; return 0 to indicate not found
+            jmp [temp_return_addr]
+
+        .found_it:
+            push edx ; return  pointer to tail of dictionary word
+            jmp [temp_return_addr]
+
+    And the calls simply flow one after the other without
+    any explicit data passing:
+
+
+            jmp find
+        t1: mov dword [temp_return_addr], t2
+            jmp inline
+        t2: ...
+
+    And does _that_ work?
+
+dave@cygnus~/meow5$ mr
+Meow.
+Meow.
+Meow.
+Meow.
+Meow.
+
+    Yes, and now I can check that little box at the top of
+    this log. We're doing pure stack-based concatenative
+    programming now.
+
+    Next step:
+
+        [ ] Parse the string "meow meow meow meow meow exit"
+            as a program (pretend we're already in "compile
+            mode" and we're gathering word tokens and
+            compiling them) and execute it.

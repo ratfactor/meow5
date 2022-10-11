@@ -17,6 +17,7 @@ last: resb 4            ; Pointer to last defined word tail
 data_segment: resb 1024 ; We inline ("compile") here!
 here: resb 4            ; Current data_segment pointer
 meow_counter: resb 1    ; Will count the five meows
+temp_return_addr: resb 4 ; to avoid messing with stack!
 
 ; ----------------------------------------------------------
 ; DATA - defined values
@@ -37,7 +38,8 @@ temp_exit_name: db 'exit', 0
 ; ----------------------------------------------------------
 section .text
 
-exit: ; exit WORD (TODO: take an exit code from the stack)
+exit: ; exit WORD (takes exit code from stack)
+    pop ebx ; exit code
     mov ebx, 0 ; exit with happy 0
     mov eax, SYS_EXIT
     int 0x80
@@ -57,28 +59,29 @@ meow_tail:
     dd (meow_tail - meow)
     db "meow", 0
 
-inline: ; inline WORD ( TODO: take address from the stack)
-    ;   input: esi - tail of the word to inline
+inline: ; inline WORD (takes addr of tail from stack)
+    pop esi ; tail of word to inline
     mov edi, [here]    ; destination
     mov ecx, [esi + 4] ; get len into ecx
     sub esi, ecx       ; sub len from  esi (start of code)
     rep movsb          ; copies from esi to esi+ecx into edi
     add edi, ecx       ; update here pointer...
     mov [here], edi    ; ...and store it
-    ret
+    jmp [temp_return_addr]
 inline_tail:
     dd meow_tail ; link to prev word
     dd (inline_tail - inline)
     dd "inline", 0
 
-find: ; not really a WORD yet (we 'call' it), but has tail
+find:
     ; register use:
     ;   al  - to-find name character being checked
 	;   ebx - start of dict word's name string
 	;   ecx - byte offset counter (each string character)
     ;   edx - dictionary list pointer
 	;   ebp - start of to-find name string
-    mov ebp, [esp + 4] ; first param from stack!
+    ;
+    pop ebp ; first param from stack!
 
     ; search backwards from last word
     mov edx, [last]
@@ -106,12 +109,12 @@ find: ; not really a WORD yet (we 'call' it), but has tail
     jmp .test_word
 
 .not_found:
-    mov eax, 0    ; return 0 to indicate not found
-    ret           ; (using call/ret for now)
+    push 0   ; return 0 to indicate not found
+    jmp [temp_return_addr]
 
 .found_it:
-    mov eax, edx  ; pointer to tail of dictionary word
-    ret           ; (using call/ret for now)
+    push edx ; return  pointer to tail of dictionary word
+    jmp [temp_return_addr]
 
 find_tail:
     dd inline_tail ; link to prev word
@@ -142,25 +145,26 @@ _start:
 inline_a_meow:
     ; use 'find' to get meow_tail!
 	; TEMP: ignoring a possible null pointer return because
-	; in this test I KNOW it will be found. The use of call
-	; is also temporary.
+	; in this test I KNOW it will be found.
 	; NOTE: I'm currently leaking four bytes of memory per
 	; find because I'm not popping the param I push on the
 	; stack...
     push temp_meow_name ; the name string to find
-    call find           ; answer will be in eax
-    mov esi, eax        ; putting directly in reg for now
-    call inline
-    dec byte [meow_counter]
+    mov dword [temp_return_addr], t1
+    jmp find
+t1: mov dword [temp_return_addr], t2
+    jmp inline
+t2: dec byte [meow_counter]
     jnz inline_a_meow
 
     ; inline exit
     push temp_exit_name ; the name string to find
-    call find           ; answer will be in eax
-    mov esi, eax        ; putting directly in reg for now
-    call inline
-
+    mov dword [temp_return_addr], t3
+    jmp find
+t3: mov dword [temp_return_addr], t4
+    jmp inline
+t4:
     ; Run!
-    ; jump to the "compiled" program
-    jmp data_segment
+    push 0           ; push exit code to stack for exit
+    jmp data_segment ; jump to the "compiled" program
 
