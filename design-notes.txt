@@ -1,11 +1,13 @@
 Just some quick notes to self for now - just trying not
 to forget what I woke up with in my head!
 
-write header AFTER the word (to make it dirt-simple
+===========================================================
+DONE: write header AFTER the word (to make it dirt-simple
 to calc length of machine instructions and write it there)
 
-use linked list like i learned how to implement in jonesforth
+DONE: use linked list like i learned how to implement in jonesforth
 
+===========================================================
 get as quickly as possible to
 
     : meow5 meow meow meow meow meow ;
@@ -14,6 +16,44 @@ first compound word after meow5 could be:
 
     : exit0 0 exit ;
 
+===========================================================
+Challenge: how to have dictionary words that can be called in meow5 itself
+to form the basis of the language (specifically, 'find', 'inline', etc.)?
+The "tails" that make them words make them not function as good assembly
+citizens.
+
+Right now, I've got a temporary variable in BSS that functions as a
+single return address for these words.
+
+What I think I might need to do is make a macro that detects
+that a return is requested and then does it.
+
+OR have two labels at the end of those words - one that is the end when
+you inline/compile it as a word and the 'tail' label. The length of
+the word would be considered the instructions before the "return"
+jump mechanism. So when inlined, it wouldn't even check for a jump,
+it would just flow on through to the next word.
+
+And I think i'll probably need to have a mini-stack for return addresses
+in this tiny subset of words-that-can-be-called-like-functions. Just a
+handful of nested calls (i'm not going to use recursion or anything like
+that):
+
+    return_stack:         resb 32
+    return_stack_pointer: resb 4
+
+Something like that.
+And two macros:
+
+    CALLWORD
+    RETURN
+
+Again, this is only to boostrap the bare minimum number of words needed
+to compile the rest of the interpreter via the "normal" inline-and-execute
+mechanisms.
+
+
+===========================================================
 have explicit interpret-time vs comp-time context words.
 
 Regular interpret-time:
@@ -32,12 +72,14 @@ match:
     * context (compile or interpret)
 
 Which ALSO means that we can define two different words
-with the same 
+with the same name for compile/run (or interp/comp) time
 
-Use stack for all word param passing - don't
+===========================================================
+DONE: Use stack for all word param passing - don't
 get fancy with trying to keep track of registers
 with this proof of concept!!!
 
+===========================================================
 How hard is it to write an elf executable? it would
 be super cool to be able to write any compiled word
 straight to disk as a tiny, self-contained executable!
@@ -45,9 +87,8 @@ Especially when done right from the interpreter REPL.
 I bet not many languages have *that* feature! (I don't
 know of any).
 
-
+===========================================================
 Register Usage
---------------
 
 Typical usage notes (JF = JONESFORTH)
 
@@ -64,7 +105,8 @@ Typical usage notes (JF = JONESFORTH)
            JF used the stack as THE parameter stack
     EIP: instruction pointer!
 
-Hmmm... as much as possible, I'll use the stack and
+===========================================================
+DONE-ish: Hmmm... as much as possible, I'll use the stack and
 other in-memory pointers to avoid having to think about
 explicit registers as much as possible. Certainly some
 of the ones needed for a traditional "threaded interpreted"
