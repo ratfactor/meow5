@@ -81,11 +81,11 @@
     beginning of this line". Which is very handy. And that's
     exactly what's gonna be put into temp_return_addr:
 
-        0904 is big-endian for temp_return_addr at 0409
+        0904 is little-endian for temp_return_addr at 0409
              (which I could see further up my listing)
 
         DD000000 is the address returned by $
-                 (again, in big-endian)
+                 (again, in little-endian)
 
     And assuming the assembled code won't change, it looks
     like I want my return address to be an additional...
