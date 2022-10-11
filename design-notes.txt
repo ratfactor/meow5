@@ -15,6 +15,17 @@ get as quickly as possible to
 first compound word after meow5 could be:
 
     : exit0 0 exit ;
+    
+===========================================================
+Idea: Add description/usage instructions strings to word 'tails'
+so they can be read (maybe even searched?) while in the interpreter.
+A totally easy feature that wouldn't have made sense on the old
+memory-started machines of the late 1960s. I'm thinking that some
+stack annotations could be semi-automated, too. Well, there is
+a ton of low-hanging usability fruit once you go down this
+avenue. Gotta stick with the minimum viable PoC for now...would
+be so easy to get wrapped up in shaving those yaks and choosing
+juuuuuust the right colors for that bike shed...
 
 ===========================================================
 Challenge: how to have dictionary words that can be called in meow5 itself
