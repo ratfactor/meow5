@@ -57,7 +57,6 @@
     myself on my little split screen setup!), so I'll see if
     I can reformat it enough to fit here:
 
-
 152 00DA 68[0600]         push temp_meow_name
 153 00DD 66C706[0904]-    mov dword [temp_return_addr], $
 153 00E2 [DD000000]
@@ -166,6 +165,10 @@ Program received signal SIGSEGV, Segmentation fault.
 
     Yeah. So... 12 bytes?
 
+    And to think, I waxed all poetic about the NASM listing.
+    I don't know how to explain the byte discrepancy. Let's
+    see if this works:
+
 (gdb) break find.found_it 
 Breakpoint 1, find.found_it () at meow5.asm:116
 116	    mov eax, edx  ; pointer to tail of dictionary word
@@ -179,7 +182,6 @@ inline_a_meow () at meow5.asm:156
     expected. So I'll just bit the bullet and hold my nose
     and use some temporary labels. It's still quite
     compact, so I'll just paste it here:
-
 
             push temp_meow_name ; the name string to find
             mov dword [temp_return_addr], t1
@@ -233,7 +235,6 @@ Meow.
     And the calls simply flow one after the other without
     any explicit data passing:
 
-
             jmp find
         t1: mov dword [temp_return_addr], t2
             jmp inline
@@ -254,7 +255,242 @@ Meow.
 
     Next step:
 
-        [ ] Parse the string "meow meow meow meow meow exit"
+        [x] Parse the string "meow meow meow meow meow exit"
             as a program (pretend we're already in "compile
             mode" and we're gathering word tokens and
             compiling them) and execute it.
+
+    It begins! Here's the string in the .data segment:
+
+        input_buffer_start:
+            db 'meow meow meow meow meow exit', 0
+        input_buffer_end:
+
+    And here's the .bss segment "variables":
+
+        token_buffer: resb 32    ; For get_token
+        input_buffer_pos: resb 4 ; Save position of read tokens
+
+    Yup, just 32 chars for token names (well, 31 because I'm
+    null-terminating the string). Hey, it's my language. Ha
+    ha, I can always bump this up later. But 31 is actually
+    quite long, you know?
+
+        abcdefghijklmnopqrstuvwxyz01234
+
+    I've created a word called 'get_token' which will do the
+    job of both 'WORD' and 'KEY' in Forth. And I was just
+    about to 'call' it to test it, but I can't bear to put
+    in another manual temporary label 
+
+    So, it's macro time!
+
+        %macro CALLWORD 1
+                mov dword [return_addr], %%return_to
+                jmp %1
+            %%return_to:
+        %endmacro
+
+    And it should be super easy to use. First, I'll test my
+    temporary "manual" 'meow' and 'exit' inlines to make
+    sure it works. They're about to go away, but they'll
+    make a good test.
+
+    Look at how clean the 'exit' one is:
+
+        push temp_exit_name ; the name string to find
+        CALLWORD find
+        CALLWORD inline
+
+     But does it work?
+
+dave@cygnus~/meow5$ mr
+Meow.
+Meow.
+Meow.
+Meow.
+Meow.
+
+    First try! No way. I mean, of _course_ it worked first
+    try and I never doubted it would.
+
+    Okay, now let's get into this get_token function:
+
+(gdb) break get_next_token 
+Breakpoint 1 at 0x804912e: file meow5.asm, line 189.
+(gdb) r
+Starting program: /home/dave/meow5/meow5 
+
+Breakpoint 1, get_next_token () at meow5.asm:189
+189	        mov dword [return_addr], %%return_to ; CALLWORD
+190	        jmp %1                               ; CALLWORD
+150	    mov ebx, [input_buffer_pos] ; set input read addr
+151	    mov edx, token_buffer       ; set output write addr
+152	    mov ecx, 0                  ; position index
+154	    mov al, [ebx + ecx] ; input addr + position index
+155	    cmp al, 0           ; end of input?
+(gdb) p/c $al
+$2 = 109 'm'
+
+    Nice! So the 'm' from the first 'meow' has been
+    collected so far. Now the rest of the token...
+
+(gdb) break 155
+Breakpoint 2 at 0x80490c7: file meow5.asm, line 155.
+(gdb) c
+155	    cmp al, 0           ; end of input?
+(gdb) p/c $al
+$3 = 101 'e'
+...
+$4 = 111 'o'
+$5 = 119 'w'
+$6 = 32 ' '
+
+    We have 'meow' and the space should be our token
+    separator.
+
+155	    cmp al, 0           ; end of input?
+156	    je .end_of_input    ; yes
+157	    cmp al, ' '         ; token separator? (space)
+158	    je .return_token    ; yes
+170	    add [input_buffer_pos], ecx ; save input position
+171	    mov [edx + ecx], byte 0     ; terminate str null
+
+    Looks good. Did we collect 4 characters as expected?
+
+(gdb) p $ecx
+$7 = 4
+
+    Yup. Then get_token will "return" the token string
+    address so 'find' can use it to find the 'meow' word:
+
+172	    push DWORD token_buffer     ; return str address
+173	    jmp [return_addr]
+219	    cmp DWORD [esp], 0  ; check return without popping
+220	    je run_it           ; all out of tokens!
+189	        mov dword [return_addr], %%return_to ; CALLWORD
+190	        jmp %1                               ; CALLWORD
+96	    pop ebp ; first param from stack!
+find () at meow5.asm:99
+99	    mov edx, [last]
+
+    Okay, the execution looks right. And did we pass the
+    address correctly on the stack?
+
+(gdb) p $ebp
+$9 = (void *) 0x804a43d <token_buffer>
+
+    Yup! And does it contain the expected 'meow' token?
+
+(gdb) x/s $ebp
+0x804a43d <token_buffer>:	"meow"
+
+    Nice!
+
+    I'm going to assume 'find' and 'inline' will work
+    correctly. Let's see if we can get the next token from
+    the input string:
+
+(gdb) c
+Continuing.
+Breakpoint 2, get_token.get_char () at meow5.asm:155
+155	    cmp al, 0           ; end of input?
+
+    Alright, we're back in get_token. This should be the
+    first character of the second 'meow' token:
+
+(gdb) p/c $al
+$10 = 32 ' '
+
+    Uh oh. That doesn't look right. I'll continue anyway...
+
+(gdb) c
+Continuing.
+
+Program received signal SIGSEGV, Segmentation fault.
+inline () at meow5.asm:76
+76	    mov ecx, [esi + 4] ; get len into ecx
+
+    Yeah, that makes sense. 'find' will have
+    failed to find the '' token and then 'inline' crashes when
+    trying to read from address 0 (the null pointer return
+    value from 'find').
+
+    The best way to handle this is probably to ignore any
+    leading spaces - that will not only be useful later, it
+    will take care of this current character problem.
+
+    In a higher-level language, I might choose to do this
+    with nested logic, like so:
+
+        if (char === ' ')
+            if (token.len > 0)
+                'eat' space (move to next input char)
+            else
+                return the token
+            end
+        end
+
+    But in assembly, this all gets flattened. It's a
+    surprisingly interesting exercise to formulate the logic
+    in terms of jumps. (At least at first. I'm sure the
+    novelty wears off after a while.)
+
+    Anyway, here's my solution:
+
+            cmp al, ' '         ; token separator? (space)
+            jne .add_char       ; nope! get char
+            cmp ecx, 0          ; yup! do we have a token yet?
+            je .eat_space       ; no
+            jmp .return_token   ; yes, return it
+        .eat_space:
+            inc ebx             ; 'eat' space by advancing input
+            jmp .get_char
+
+    I'll make sure that works in GDB. I changed the input
+    string to:
+
+        db ' meow   meow meow meow meow exit', 0
+
+    with a leading space and two spaces before the second
+    meow token. That'll make it easy to test:
+
+155	    cmp al, 0           ; end of input?
+(gdb) p/c $al
+$1 = 32 ' '
+157	    cmp al, ' '         ; token separator? (space)
+158	    jne .add_char       ; nope! get char
+162	    cmp ecx, 0
+163	    je .eat_space
+171	    inc ebx
+172	    jmp .get_char
+
+    Yup! That line 171 is my "eat the leading space" action
+    and now we should get the 'm' in "meow" and store it:
+
+154	    mov al, [ebx + ecx] ; input addr + position index
+155	    cmp al, 0           ; end of input?
+156	    je .end_of_input    ; yes
+(gdb) p/c $al
+$2 = 109 'm'
+157	    cmp al, ' '         ; token separator? (space)
+158	    jne .add_char       ; nope! get char
+175	    mov [edx + ecx], al ; write character
+
+    Yeah. This is looking good.
+
+    You know what? I'm just gonna go for it:
+
+dave@cygnus~/meow5$ mr
+Meow.
+Meow.
+Meow.
+Meow.
+Meow.
+
+    Yes! So that's another item checked off!
+
+    This is really coming along.
+
+    At nearly 500 lines, this log is complete. I'll see you
+    in the next one, log04.txt. :-)

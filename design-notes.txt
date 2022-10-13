@@ -65,6 +65,13 @@ mechanisms.
 
 
 ===========================================================
+Display machine code (at least) and all 'tail' meta-info
+about a word (or all words), maybe even with some nice
+ansi color coding. I wanna make this look pretty so much,
+but I know I've gotta hold off on the curtains and carpet
+and get the walls and floors built first..
+
+===========================================================
 have explicit interpret-time vs comp-time context words.
 
 Regular interpret-time:
