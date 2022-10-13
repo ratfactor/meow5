@@ -63,6 +63,8 @@ Again, this is only to boostrap the bare minimum number of words needed
 to compile the rest of the interpreter via the "normal" inline-and-execute
 mechanisms.
 
+I do have the beginnings of the above DONE for now.
+
 
 ===========================================================
 Display machine code (at least) and all 'tail' meta-info

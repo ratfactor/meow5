@@ -1,0 +1,50 @@
+    The last update was very exciting. Now I'm actually
+    reading a single word's definition from a string,
+    inlining all of the code into memory, and executing it.
+
+    To put it in concrete terms, this 'meow5' definiton:
+
+        "meow meow meow meow meow exit"
+
+    Was turned into this in memory:
+
+        <meow word machine code>
+        <meow word machine code>
+        <meow word machine code>
+        <meow word machine code>
+        <exit word machine code>
+
+    The 'exit' word even pops the exit status code from the
+    stack. Between that and all of the meowing, we're
+    getting extremely conCATenative here. Sorry.
+
+    So I need to figure out what step comes next. I need to:
+
+        1. Get user input from STDIN
+        2. Figure out how immediate mode will work
+           (currently, i start in compile mode and when
+           that's done, I execute whatever was compiled!)
+        3. Create the colon ':' and semicolon ';' words to
+           toggle compile mode (and create word definitions!)
+
+    I would also like to have introspection and diagnostics
+    and visualizations as early in this project as possible!
+    But for now, I'm gonna stay the course towards an
+    absolutely minimumal proof of concept. I want to be able
+    to type this:
+
+        : meow5 meow meow meow meow meow exit ;
+        meow5
+
+    And see this:
+
+        Meow.
+        Meow.
+        Meow.
+        Meow.
+        Meow.
+        BYE!
+        $
+
+    So how about #2 from the list above - how simple can the
+    colon command be?

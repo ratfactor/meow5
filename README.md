@@ -4,7 +4,9 @@ Note: This is a super early work in progress. Check the `log*.txt` files to see
 where I'm currently at! Also take a look at `design-notes.txt` for more ongoing
 thoughts (also kinda functions as a vague todo/done list).
 
-**Update:** Finding words by name, inlining them, and executing the program works.
+**Update:** Defining a single word in a string, tokenizing the
+string into "words", finding those words by name, inlining them,
+and executing the program!
 
 A Forth-like language that is conCATenative in two ways:
 
