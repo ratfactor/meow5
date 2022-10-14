@@ -9,10 +9,15 @@
 %assign SYS_EXIT 1
 %assign SYS_WRITE 4
 
+; word flags (can have 32 of these if needed)
+%assign COMPILED  00000001b
+%assign IMMEDIATE 00000010b
+
 ; ----------------------------------------------------------
 ; BSS - reserved space
 ; ----------------------------------------------------------
 section .bss
+mode: resb 1            ; 1=compile mode, 0=immediate mode
 last: resb 4            ; Pointer to last defined word tail
 data_segment: resb 1024 ; We inline ("compile") here!
 here: resb 4            ; Current data_segment pointer
@@ -27,7 +32,10 @@ input_buffer_pos: resb 4 ; Save position of read tokens
 section .data
 meow_str:
     db `Meow.\n`
-end_meow_str:
+meow_str_end:
+imm_meow_str:
+    db `Meow!\n`
+imm_meow_str_end:
 
 ; I can't get these from the user yet, but I'm pretending we
 ; did. These are the word names we'll 'find' and 'inline' to
@@ -39,13 +47,21 @@ temp_exit_name: db 'exit', 0
 ; NOTE: This buffer will move to the BSS section when I
 ; start reading real input.
 input_buffer_start:
-    db ' meow   meow meow meow meow exit', 0
+    db ' meow  : meow5 meow meow meow meow meow ; exit', 0
 input_buffer_end:
 
 ; ----------------------------------------------------------
 ; TEXT - executable program - starting with words
 ; ----------------------------------------------------------
 section .text
+
+; Words!
+; Tail format:
+;    32b link to prev word
+;    32b length of machine code
+;    32b flags (word mode, etc)
+;    nnb string name of nn bytes
+;    1b  0 null terminator (for name)
 
 exit: ; exit WORD (takes exit code from stack)
 ; ==================
@@ -56,17 +72,31 @@ exit: ; exit WORD (takes exit code from stack)
 exit_tail:
     dd 0 ; null link is end of linked list
     dd (exit_tail - exit) ; len of machine code
+    db (COMPILED & IMMEDIATE)
     db "exit", 0 ; name, null-terminated
+
+imm_meow: ; immediate meow WORD (no stack change)
+    mov ebx, STDOUT
+    mov ecx, imm_meow_str                  ; str start addr
+    mov edx, (imm_meow_str_end - imm_meow_str) ; str length
+    mov eax, SYS_WRITE
+    int 0x80
+imm_meow_tail:
+    dd exit_tail ; link to prev word
+    dd (meow_tail - meow)
+    dd IMMEDIATE
+    db "meow", 0
 
 meow: ; meow WORD (no stack change)
     mov ebx, STDOUT
     mov ecx, meow_str                  ; str start addr
-    mov edx, (end_meow_str - meow_str) ; str length
+    mov edx, (meow_str_end - meow_str) ; str length
     mov eax, SYS_WRITE
     int 0x80
 meow_tail:
     dd exit_tail ; link to prev word
     dd (meow_tail - meow)
+    dd COMPILED
     db "meow", 0
 
 inline: ; inline WORD (takes addr of tail from stack)
@@ -82,6 +112,7 @@ inline: ; inline WORD (takes addr of tail from stack)
 inline_tail:
     dd meow_tail ; link to prev word
     dd (inline_tail - inline)
+    dd IMMEDIATE ; for now
     dd "inline", 0
 
 find:
@@ -100,7 +131,6 @@ find:
 .test_word:
     cmp edx, 0  ; a null pointer (0) is end of list
     je .not_found
-
     ; Now we'll compare name to find vs this dictionary name
     ; (ebx vs edx) byte-by-byte until a mismatch or one hits
     ; a 0 terminator first.  Only having all correct letters
@@ -115,22 +145,19 @@ find:
     je .found_it
 	inc ecx
 	jmp .compare_names_loop
-
 .try_next_word:
     mov edx, [edx]   ; follow the tail! (linked list)
     jmp .test_word
-
 .not_found:
     push 0   ; return 0 to indicate not found
     jmp [return_addr]
-
 .found_it:
     push edx ; return  pointer to tail of dictionary word
     jmp [return_addr]
-
 find_tail:
     dd inline_tail ; link to prev word
     dd (find_tail - find)
+    dd IMMEDIATE ; for now
     dd "find", 0
 
 
@@ -182,6 +209,7 @@ get_token:
 get_token_tail:
     dd find_tail ; link to prev word
     dd (get_token_tail - get_token)
+    dd IMMEDIATE ; for now
     dd "get_token", 0
 
 ; ----------------------------------------------------------
@@ -206,6 +234,9 @@ global _start
 _start:
     cld    ; use increment order for certain cmds
 
+    ; Start in immediate mode - execute words immediately!
+    mov [mode], 0;
+
 	; Here points to the current spot where we're going to
 	; inline ("compile") the next word.
     mov dword [here], data_segment
@@ -220,7 +251,7 @@ _start:
     mov dword [input_buffer_pos], input_buffer_start
 
 	; ----------------------------------------------------
-    ; "Compile" the program!
+    ; Interpreter!
     ; ----------------------------------------------------
 get_next_token:
     CALLWORD get_token
@@ -229,25 +260,6 @@ get_next_token:
     CALLWORD find       ; find token (ignore error)
     CALLWORD inline     ; inline it!!!
     jmp get_next_token
-
-;    mov byte [meow_counter], 5 ; 5 meows
-;inline_a_meow:
-;    ; use 'find' to get meow_tail!
-;	; TEMP: ignoring a possible null pointer return because
-;	; in this test I KNOW it will be found.
-;	; NOTE: I'm currently leaking four bytes of memory per
-;	; find because I'm not popping the param I push on the
-;	; stack...
-;    push temp_meow_name ; the name string to find
-;    CALLWORD find
-;    CALLWORD inline
-;    dec byte [meow_counter]
-;    jnz inline_a_meow
-;
-;    ; inline exit
-;    push temp_exit_name ; the name string to find
-;    CALLWORD find
-;    CALLWORD inline
 
 run_it:
     push 0           ; push exit code to stack for exit

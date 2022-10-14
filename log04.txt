@@ -2,7 +2,7 @@
     reading a single word's definition from a string,
     inlining all of the code into memory, and executing it.
 
-    To put it in concrete terms, this 'meow5' definiton:
+    To put it in concrete terms, this 'meow5' definition:
 
         "meow meow meow meow meow exit"
 
@@ -16,7 +16,7 @@
 
     The 'exit' word even pops the exit status code from the
     stack. Between that and all of the meowing, we're
-    getting extremely conCATenative here. Sorry.
+    getting extremely "conCATenative" here. Sorry.
 
     So I need to figure out what step comes next. I need to:
 
@@ -36,7 +36,7 @@
         : meow5 meow meow meow meow meow exit ;
         meow5
 
-    And see this:
+    And see (something like) this:
 
         Meow.
         Meow.
@@ -46,5 +46,31 @@
         BYE!
         $
 
-    So how about #2 from the list above - how simple can the
-    colon command be?
+    So how about #2 and/or #3 from the list above - how
+    simple can the colon command be?
+
+    So I've updated the input string:
+
+        db 'meow  : meow5 meow meow meow meow meow ;
+            meow5 exit', 0
+
+    (ignore the newline)
+    Which reads as:
+
+        1. call meow right now in "immediate" mode
+        2. : switches to compile mode and
+        3. store "meow5" as name
+        4. inline 5 meow words
+        5. ; writes tail (including saved name) and
+        6. switches back to immediate mode
+        7. call new meow5 word
+        8. exit
+
+    and have created a mode var and added imm/comp flags to
+    tails. todo:
+
+    [ ] colon word store name somewhere
+    [ ] find should also match mode flag (use &)
+    [ ] semicolon should write tail
+    [ ] immediate mode should find and exec words...somehow
+
