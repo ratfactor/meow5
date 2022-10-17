@@ -74,3 +74,82 @@
     [ ] semicolon should write tail
     [ ] immediate mode should find and exec words...somehow
 
+    Next two nights: Hmm...okay, so adding more words that
+    will execute as they're entered ("immediate" words) is
+    forcing me to deal with how they should return execution
+    to whatever called them.
+
+    To recap:
+
+        * Compiled code in meow5 will be concatenated
+          together, so there is no such thing as "return"
+          _within_ a compiled word - execution truly just
+          flows from the end of one word to the beginning of
+          the next.
+
+        * Many words (':' or 'colon' is an example), which
+          must be able to operate outside of a compiled word
+          because it is needed to do the compiling!
+
+        * Some words can execute _both_ ways in a single
+          definition. 'exit' is my only example currently -
+          it's simple because no part of the program needs
+          to execute after it's done, of course.
+
+        * A select few words will even need to be executed
+          from within the meow5 binary itself (in assembly)
+          to make the initial functionality of the
+          interpreter available. 'find' and 'inline' are two
+          such fundamental words.
+
+        * I've slowly been converting all of the traditional
+          procedure calls in this prototype into simple
+          jumps and manually keeping track of a single level
+          of return address.
+
+    Now the ':' command forces me to implement a return
+    stack for immediate execution, at the very least,
+    because it will need to call, for instance, 'get_token',
+    to get the name of the word being defined:
+
+        : meow 5 ...;
+
+    Here 'meow5' is the name of the new word.
+
+    Anyway, after sleeping on it, I think I'll solve this by
+    having macros to start and end a word in assembly. In
+    addition to taking care of the housekeeping duties of
+    creating the tail metadata, they'll also setup return
+    jumping and stack poppin'. The length of the word in the
+    tail will NOT include the return stuff so it won't be
+    included when the word is inlined.
+
+    Anyway, it makes sense in my head.
+
+    The basic word-making macros are easy enough:
+
+        %macro DEFWORD 1 ; takes name of word to make
+            %1:
+        %endmacro
+
+        %macro ENDWORD 3
+            end_%1:
+            ; todo: immediate "return" goes here
+            tail_%1:
+                dd LAST_WORD_TAIL ; linked list
+                %define LAST_WORD_TAIL tail_%1
+                dd (tail_%1 - %1) ; length of word
+                dd %3             ; flags
+                db %2, 0        ; name as string
+        %endmacro
+
+    I tested this and I'll spare you the GDB walkthrough. It
+    works and I was able to execute this word from my input
+    string.
+
+        DEFWORD foo
+            mov eax, 42
+        ENDWORD foo, "foo", IMMEDIATE
+
+    So I'll test a call/return action with this foo, then
+    return them all...

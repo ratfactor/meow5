@@ -47,7 +47,8 @@ temp_exit_name: db 'exit', 0
 ; NOTE: This buffer will move to the BSS section when I
 ; start reading real input.
 input_buffer_start:
-    db ' meow  : meow5 meow meow meow meow meow ; exit', 0
+;    db ' meow  : meow5 meow meow meow meow meow ; exit', 0
+    db ' foo exit', 0
 input_buffer_end:
 
 ; ----------------------------------------------------------
@@ -63,6 +64,10 @@ section .text
 ;    nnb string name of nn bytes
 ;    1b  0 null terminator (for name)
 
+; Keep track of word addresses for linked list.
+; We start at 0 (null pointer) to indicate end of list.
+;%assign LAST_WORD_TAIL exit_tail
+
 exit: ; exit WORD (takes exit code from stack)
 ; ==================
     pop ebx ; exit code
@@ -72,8 +77,10 @@ exit: ; exit WORD (takes exit code from stack)
 exit_tail:
     dd 0 ; null link is end of linked list
     dd (exit_tail - exit) ; len of machine code
-    db (COMPILED & IMMEDIATE)
+    dd (COMPILED & IMMEDIATE)
     db "exit", 0 ; name, null-terminated
+
+%define LAST_WORD_TAIL exit_tail
 
 imm_meow: ; immediate meow WORD (no stack change)
     mov ebx, STDOUT
@@ -94,7 +101,7 @@ meow: ; meow WORD (no stack change)
     mov eax, SYS_WRITE
     int 0x80
 meow_tail:
-    dd exit_tail ; link to prev word
+    dd imm_meow_tail ; link to prev word
     dd (meow_tail - meow)
     dd COMPILED
     db "meow", 0
@@ -135,8 +142,8 @@ find:
     ; (ebx vs edx) byte-by-byte until a mismatch or one hits
     ; a 0 terminator first.  Only having all correct letters
     ; AND hitting 0 at the same time is a match.
-    lea ebx, [edx + 8] ; set dict. word name pointer
-    mov ecx, 0         ; reset byte offset counter
+    lea ebx, [edx + 12] ; set dict. word name pointer
+    mov ecx, 0          ; reset byte offset counter
 .compare_names_loop:
 	mov al, [ebp + ecx] ; get next to-find name byte
     cmp al, [ebx + ecx] ; compare with next dict word byte
@@ -212,6 +219,7 @@ get_token_tail:
     dd IMMEDIATE ; for now
     dd "get_token", 0
 
+; MACROS!
 ; ----------------------------------------------------------
 ; CALLWORD macro - for faking call/ret to word as if 'twas
 ; a function. Will only be needed for tiny subset of words.
@@ -227,6 +235,24 @@ get_token_tail:
     %%return_to:                             ; CALLWORD
 %endmacro
 
+%macro DEFWORD 1 ; takes name of word to make
+    %1:
+%endmacro
+%macro ENDWORD 3
+    end_%1:
+    ; todo: immediate "return" goes here
+    tail_%1:
+        dd LAST_WORD_TAIL ; linked list
+        %define LAST_WORD_TAIL tail_%1
+        dd (tail_%1 - %1) ; length of word
+        dd %3             ; flags
+        db %2, 0        ; name as string
+%endmacro
+
+DEFWORD foo
+    mov eax, 42
+ENDWORD foo, "foo", IMMEDIATE
+
 ; ----------------------------------------------------------
 ; PROGRAM START!
 ; ----------------------------------------------------------
@@ -235,7 +261,7 @@ _start:
     cld    ; use increment order for certain cmds
 
     ; Start in immediate mode - execute words immediately!
-    mov [mode], 0;
+    mov byte [mode], 0;
 
 	; Here points to the current spot where we're going to
 	; inline ("compile") the next word.
@@ -244,7 +270,7 @@ _start:
     ; Store last tail for dictionary searches (note that
 	; find just happens to be the last word defined in the
 	; dictionary at the moment).
-    mov dword [last], find_tail
+    mov dword [last], LAST_WORD_TAIL
 
     ; This will probably _really_ get set when we read
     ; more input. But for now, set to start of buffer:
