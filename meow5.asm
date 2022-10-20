@@ -17,7 +17,7 @@
 ; BSS - reserved space
 ; ----------------------------------------------------------
 section .bss
-mode: resb 1            ; 1=compile mode, 0=immediate mode
+mode: resb 4            ; 1=compile mode, 0=immediate mode
 last: resb 4            ; Pointer to last defined word tail
 data_segment: resb 1024 ; We inline ("compile") here!
 here: resb 4            ; Current data_segment pointer
@@ -37,6 +37,13 @@ imm_meow_str:
     db `Meow!\n`
 imm_meow_str_end:
 
+; Find failed error message
+not_found_str1:
+    db 'Could not find word "'
+not_found_str2:
+    db `"\n`
+not_found_end:
+
 ; I can't get these from the user yet, but I'm pretending we
 ; did. These are the word names we'll 'find' and 'inline' to
 ; compile.
@@ -47,97 +54,114 @@ temp_exit_name: db 'exit', 0
 ; NOTE: This buffer will move to the BSS section when I
 ; start reading real input.
 input_buffer_start:
-;    db ' meow  : meow5 meow meow meow meow meow ; exit', 0
-    db ' foo exit', 0
+    db 'meow meow meow meow meow exit', 0
 input_buffer_end:
+
+; ----------------------------------------------------------
+; MACROS!
+; ----------------------------------------------------------
+
+%macro CALLWORD 1 ; takes label of word to call
+    ; For faking call/ret to word as if 'twas a function
+    ; within assembly while creating the meow5 executable.
+    ;
+    ; This single return address will surely need to be
+    ; upgraded to a stack as soon as I 'call' a word from
+    ; another word? We'll see.
+    ; (There won't be any such thing as "calling" words
+    ; within compiled words since the invocations will
+    ; inline the whole callee!)
+    ;
+    ; Note that '%%return_to' is a macro-local label.
+        mov dword [return_addr], %%return_to ; CALLWORD
+        jmp %1                               ; CALLWORD
+    %%return_to:                             ; CALLWORD
+%endmacro
+
+%macro DEFWORD 1 ; takes name of word to make
+    ; Start a word definition
+    %1:
+%endmacro
+
+%macro ENDWORD 3
+    ; End a word definiton with a tail, etc.
+    ; params:
+    ;   %1 - word name for label (must be NASM-safe)
+    ;   %2 - string word name for find
+    ;   %3 - 32 bits of flags
+    ; Here ends the machine code for the word:
+    end_%1:
+        ; If we've called this in immediate mode, use the
+        ; return address. This part won't be inlined.
+        jmp [return_addr]
+    tail_%1:
+        dd LAST_WORD_TAIL ; 32b address, linked list
+        %define LAST_WORD_TAIL tail_%1
+        dd (end_%1 - %1)  ; 32b length of word machine code
+        dd %3             ; 32b flags for word
+        db %2, 0          ; xxb null-terminated name string
+%endmacro
+
 
 ; ----------------------------------------------------------
 ; TEXT - executable program - starting with words
 ; ----------------------------------------------------------
 section .text
 
-; Words!
-; Tail format:
-;    32b link to prev word
-;    32b length of machine code
-;    32b flags (word mode, etc)
-;    nnb string name of nn bytes
-;    1b  0 null terminator (for name)
-
 ; Keep track of word addresses for linked list.
 ; We start at 0 (null pointer) to indicate end of list.
-;%assign LAST_WORD_TAIL exit_tail
+%define LAST_WORD_TAIL 0
 
-exit: ; exit WORD (takes exit code from stack)
-; ==================
-    pop ebx ; exit code
-    mov ebx, 0 ; exit with happy 0
+DEFWORD exit
+    pop ebx ; param1: exit code
     mov eax, SYS_EXIT
     int 0x80
-exit_tail:
-    dd 0 ; null link is end of linked list
-    dd (exit_tail - exit) ; len of machine code
-    dd (COMPILED & IMMEDIATE)
-    db "exit", 0 ; name, null-terminated
+ENDWORD exit, "exit", (COMPILED | IMMEDIATE) 
 
-%define LAST_WORD_TAIL exit_tail
-
-imm_meow: ; immediate meow WORD (no stack change)
+DEFWORD imm_meow
     mov ebx, STDOUT
     mov ecx, imm_meow_str                  ; str start addr
     mov edx, (imm_meow_str_end - imm_meow_str) ; str length
     mov eax, SYS_WRITE
     int 0x80
-imm_meow_tail:
-    dd exit_tail ; link to prev word
-    dd (meow_tail - meow)
-    dd IMMEDIATE
-    db "meow", 0
+ENDWORD imm_meow, "meow", (IMMEDIATE)
 
-meow: ; meow WORD (no stack change)
+DEFWORD meow
     mov ebx, STDOUT
     mov ecx, meow_str                  ; str start addr
     mov edx, (meow_str_end - meow_str) ; str length
     mov eax, SYS_WRITE
     int 0x80
-meow_tail:
-    dd imm_meow_tail ; link to prev word
-    dd (meow_tail - meow)
-    dd COMPILED
-    db "meow", 0
+ENDWORD meow, "meow", (COMPILED)
 
-inline: ; inline WORD (takes addr of tail from stack)
-; ==================
-    pop esi ; tail of word to inline
+DEFWORD inline
+    pop esi ; param1: tail of word to inline
     mov edi, [here]    ; destination
     mov ecx, [esi + 4] ; get len into ecx
     sub esi, ecx       ; sub len from  esi (start of code)
     rep movsb          ; copies from esi to esi+ecx into edi
     add edi, ecx       ; update here pointer...
     mov [here], edi    ; ...and store it
-    jmp [return_addr]
-inline_tail:
-    dd meow_tail ; link to prev word
-    dd (inline_tail - inline)
-    dd IMMEDIATE ; for now
-    dd "inline", 0
+ENDWORD inline, "inline", (IMMEDIATE)
 
-find:
-; ==================
-    ; register use:
+DEFWORD find
+    pop ebp ; param1 - start of word string to find
+    ; in-word register use:
     ;   al  - to-find name character being checked
 	;   ebx - start of dict word's name string
 	;   ecx - byte offset counter (each string character)
     ;   edx - dictionary list pointer
-	;   ebp - start of to-find name string
-    ;
-    pop ebp ; first param from stack!
-
     ; search backwards from last word
     mov edx, [last]
 .test_word:
     cmp edx, 0  ; a null pointer (0) is end of list
     je .not_found
+    ; First, see if this word is for the mode we're
+    ; currently in (IMMEDIATE vs COMPILED):
+    mov eax, [mode]
+    and eax, [edx + 8] ; see if mode bit is set in word tail
+    cmp eax, 0
+    jz .try_next_word ; bit wasn't set to match this mode
     ; Now we'll compare name to find vs this dictionary name
     ; (ebx vs edx) byte-by-byte until a mismatch or one hits
     ; a 0 terminator first.  Only having all correct letters
@@ -157,19 +181,13 @@ find:
     jmp .test_word
 .not_found:
     push 0   ; return 0 to indicate not found
-    jmp [return_addr]
+    jmp .done
 .found_it:
     push edx ; return  pointer to tail of dictionary word
-    jmp [return_addr]
-find_tail:
-    dd inline_tail ; link to prev word
-    dd (find_tail - find)
-    dd IMMEDIATE ; for now
-    dd "find", 0
+.done:
+ENDWORD find, "find", (IMMEDIATE)
 
-
-get_token:
-; ==================
+DEFWORD get_token
     ; Returns (on stack) either:
     ;  * Address of null-termed token string or
     ;  * 0 if we're out of tokens
@@ -212,46 +230,8 @@ get_token:
     mov [input_buffer_pos], eax ; save position
     mov [edx + ecx], byte 0     ; terminate str null
     push DWORD token_buffer     ; return str address
-    jmp [return_addr]
-get_token_tail:
-    dd find_tail ; link to prev word
-    dd (get_token_tail - get_token)
-    dd IMMEDIATE ; for now
-    dd "get_token", 0
+ENDWORD get_token, "get_token", (IMMEDIATE)
 
-; MACROS!
-; ----------------------------------------------------------
-; CALLWORD macro - for faking call/ret to word as if 'twas
-; a function. Will only be needed for tiny subset of words.
-; ----------------------------------------------------------
-%macro CALLWORD 1 ; takes label of word to call
-    ; This single return address will surely need to be
-    ; upgraded to a stack as soon as I 'call' a word from
-    ; another word (only here in assembly - this has nothing
-    ; to do with normal word execution!)
-    ; Note that '%%return_to' is a macro-local label.
-        mov dword [return_addr], %%return_to ; CALLWORD
-        jmp %1                               ; CALLWORD
-    %%return_to:                             ; CALLWORD
-%endmacro
-
-%macro DEFWORD 1 ; takes name of word to make
-    %1:
-%endmacro
-%macro ENDWORD 3
-    end_%1:
-    ; todo: immediate "return" goes here
-    tail_%1:
-        dd LAST_WORD_TAIL ; linked list
-        %define LAST_WORD_TAIL tail_%1
-        dd (tail_%1 - %1) ; length of word
-        dd %3             ; flags
-        db %2, 0        ; name as string
-%endmacro
-
-DEFWORD foo
-    mov eax, 42
-ENDWORD foo, "foo", IMMEDIATE
 
 ; ----------------------------------------------------------
 ; PROGRAM START!
@@ -261,7 +241,7 @@ _start:
     cld    ; use increment order for certain cmds
 
     ; Start in immediate mode - execute words immediately!
-    mov byte [mode], 0;
+    mov dword [mode], IMMEDIATE;
 
 	; Here points to the current spot where we're going to
 	; inline ("compile") the next word.
@@ -281,13 +261,46 @@ _start:
     ; ----------------------------------------------------
 get_next_token:
     CALLWORD get_token
-    cmp DWORD [esp], 0  ; check return without popping
-    je run_it           ; all out of tokens!
+    cmp dword [esp], 0  ; check return without popping
+    je .run_it           ; all out of tokens!
     CALLWORD find       ; find token (ignore error)
+    cmp dword [esp], 0  ; check return without popping
+    je .token_not_found
     CALLWORD inline     ; inline it!!!
     jmp get_next_token
-
-run_it:
+.run_it:
     push 0           ; push exit code to stack for exit
     jmp data_segment ; jump to the "compiled" program
-
+    ; NOT expecting a return - for now, this test
+    ; should cleanly exit in whatever we compiled into
+    ; the data_segment!
+.token_not_found:
+    ; Repetitous temporary code until we get fancy!
+    ; output fd, string start, string len...
+    ; Message 1/3:
+    mov ebx, STDOUT
+    mov ecx, not_found_str1
+    mov edx, (not_found_str2 - not_found_str1)
+    mov eax, SYS_WRITE
+    int 0x80
+    ; Message 2/3:  calc strlen of token...
+    ; Someday I'll be able to call a word to do this.
+    mov ecx, token_buffer ; token will always be here
+    mov edx, 0 ; will contain len
+.find_tok_end:
+    cmp byte [ecx + edx], 0 ; null term?
+    je .print_bad_tok
+    inc edx            ; not yet, increase len
+    jmp .find_tok_end
+.print_bad_tok:
+    ; now edx and ecx should be set
+    mov ebx, STDOUT
+    mov eax, SYS_WRITE
+    int 0x80
+    ; Message 3/3:
+    mov ebx, STDOUT
+    mov ecx, not_found_str2
+    mov edx, (not_found_end - not_found_str2)
+    mov eax, SYS_WRITE
+    int 0x80
+    CALLWORD exit

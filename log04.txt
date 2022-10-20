@@ -152,4 +152,166 @@
         ENDWORD foo, "foo", IMMEDIATE
 
     So I'll test a call/return action with this foo, then
-    return them all...
+    convert them all.
+
+    It worked. Now converting...
+
+    Worked out some bugs.
+
+    Silly little mistakes.
+
+    Here's the thing: it's getting pretty annoying to have
+    to bust out GDB, guess where to set a break point, step
+    through the code, try to remember the C-dominated syntax
+    to print stuff, etc., only to find out that I forgot to
+    add a line or I put the wrong thing in a string data
+    declaration.
+
+    Don't get me wrong, I'm grateful for GDB. It's been a
+    good tool and I know I should probably re-learn some of
+    its customization options.
+
+    But what I really want is better debugging in my program
+    itself.
+
+    So I've added "word not found" handling in the main
+    routine, so it goes like this:
+
+        get_next_token:
+            CALLWORD get_token
+                if all done, jump to .run_it
+            CALLWORD find
+                if not found, jump to .token_not_found
+            CALLWORD inline
+            jmp get_next_token
+
+        .run_it:
+            jmp data_segment
+
+        .token_not_found:
+            print first part of error message
+            print token name
+            print last part of error message
+
+    I'll test it out:
+
+        input_buffer_start:
+            db 'honk meow meow meow meow meow exit', 0
+
+$ mr
+Could not find word "honk"
+
+    Excellent, that'll save me untold minutes of debugging
+    right there.
+
+    Now let's see if I've converted everthing to my new
+    macros DEFWORD ... ENDWORD properly:
+
+$ mr
+Meow!
+Meow!
+Meow!
+Meow!
+Meow!
+Meow!
+Meow!
+...
+
+    Oh no! I've got an infinite loop somehow.
+
+    Even though I'm putting in some of the "infrastructure"
+    for it, I'm not doing any immediate mode execution yet,
+    so it's nothing like that.
+
+    Nothing for it but to debug with GDB...
+
+(gdb) break get_next_token.run_it
+Breakpoint 1 at 0x80491c2: file meow5.asm, line 272.
+...
+273	    jmp data_segment ; jump to the "compiled" program
+0x0804a054 in data_segment ()
+(gdb)
+Single stepping until exit from function data_segment,
+which has no line number information.
+
+    Oh, right. There's no debugger info for the machine code
+    I've inlined into memory and executed.
+
+    All the more reason to have debugging tools built into
+    my program itself. But I don't have those yet, so at
+    least GDB can give me a disassembly:
+
+(gdb) disas &data_segment,&here
+Dump of assembler code from 0x804a054 to 0x804a454:
+   0x0804a054 <data_segment+0>:	mov    $0x1,%ebx
+=> 0x0804a059:	mov    $0x804a006,%ecx
+   0x0804a05e:	mov    $0x6,%edx
+   0x0804a063:	mov    $0x4,%eax
+   0x0804a068:	int    $0x80
+   0x0804a06a:	jmp    *0x804a459
+   0x0804a070:	mov    $0x1,%ebx
+   0x0804a075:	mov    $0x804a006,%ecx
+   0x0804a07a:	mov    $0x6,%edx
+   0x0804a07f:	mov    $0x4,%eax
+   0x0804a084:	int    $0x80
+   0x0804a086:	jmp    *0x804a459
+
+   ... repeats three more times...
+
+   0x0804a0e0:	pop    %ebx
+   0x0804a0e1:	mov    $0x1,%eax
+   0x0804a0e6:	int    $0x80
+   0x0804a0e8:	jmp    *0x804a459
+   0x0804a0ee:	add    %al,(%eax)
+   0x0804a0f0:	add    %al,(%eax)
+
+    So the nice thing about 5 "meows" in a row is that the
+    repetition is really easy to spot.
+
+    The weird thing is that they all end with a jump back to
+    the exact same place near the beginning (but not exactly
+    at the begining) of the inlined code.
+
+    Where is that jump coming from?
+
+    Oh, ha ha, I found it almost immediately. It's the
+    "return" that I put in my ENDWORD macro. That's not
+    supposed to be inlined with the "compiled" version of
+    words and it's due to a silly mistake.
+
+    The last line here:
+
+        end_%1:
+            jmp [return_addr]
+        tail_%1:
+            dd LAST_WORD_TAIL
+            dd (tail_%1 - %1)
+
+    Should be:
+
+            dd (end_%1 - %1)
+
+    So the jmp [return_addr] doesn't get inlined!
+
+    I'll fix that.
+
+    And now?
+
+(gdb) disas  &data_segment,&here
+Dump of assembler code from 0x804a054 to 0x804a454:
+   0x0804a054 <data_segment+0>:	push   %es
+   0x0804a055:	mov    0x6ba0804,%al
+   0x0804a05a:	add    %al,(%eax)
+   0x0804a05c:	add    %bh,0x4(%eax)
+   0x0804a062:	int    $0x80
+   0x0804a064:	jmp    *0x804a459
+   0x0804a06a:	push   %es
+   0x0804a06b:	mov    0x6ba0804,%al
+   0x0804a070:	add    %al,(%eax)
+   0x0804a072:	add    %bh,0x4(%eax)
+   0x0804a078:	int    $0x80
+   0x0804a07a:	jmp    *0x804a459
+   0x0804a080:	push   %es
+    ...
+
+    What on earth? That ain't right.
