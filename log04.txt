@@ -315,3 +315,114 @@ Dump of assembler code from 0x804a054 to 0x804a454:
     ...
 
     What on earth? That ain't right.
+
+    Next night: ohhhh...crud. Yeah, the problem is due to
+    the "return" code at the end of each word. My
+    dirt-simple inline is going to need an additional
+    length: there's a distance from the tail to the
+    beginning of the machine code and a separate length of
+    the machine code.  (They used to be the same thing.)
+
+    The DEFWORD macro produces this for "meow":
+
+        meow:
+            ...
+        end_meow:
+            jmp [return_addr]
+        tail_meow:
+            ...
+            dd (end_meow - meow)
+            dd (tail_meow - meow) <-- need to add this
+
+    And any other code that reads the tail (I guess that's
+    just 'find' right now?) will also need to be updated. I
+    wonder if I should be storing these "tail offsets" in
+    NASM macros as constants so I don't have to hunt them
+    down if they change in the future?
+
+    Yeah, I'll do that too. In addition to making changes
+    painless, it will make my intent clearer in the code
+    than bare offset numbers and a comment ever could.
+
+        ; Memory offsets for each item in tail:
+        %define T_CODE_LEN    4
+        %define T_CODE_OFFSET 8
+        %define T_FLAGS       12
+        %define T_NAME        16
+
+    Inline is re-worked to use the length and offset of the
+    machine code in relation to the tail address:
+
+        DEFWORD inline
+            pop esi ; param1: tail of word to inline
+            mov edi, [here]    ; destination
+            mov eax, [esi + T_CODE_LEN]    ; get len of code
+            mov ebx, [esi + T_CODE_OFFSET] ; get start of code
+            sub esi, ebx    ; set start of code for movsb
+            mov ecx, eax    ; set len of code for movsb
+            rep movsb       ; copy [esi]...[esi+ecx] into [edi]
+            add [here], eax ; save current position
+        ENDWORD inline, "inline", (IMMEDIATE)
+
+    Crossing fingers...
+
+$ mr
+Meow.
+Meow.
+Meow.
+Meow.
+Meow.
+
+    Yay, working again!
+
+    Now I can try to do something _new_ with these changes:
+    find immediate mode and compile mode words.
+
+    And to _really_ do this right, I'll use the FORTH colon
+    word ':' as my immediate/compile mode separator.
+
+    Here's my new "input buffer" string:
+
+        db 'meow meow : meow meow meow exit', 0
+
+    For now the definition of ':' will _just_ set the mode:
+
+        DEFWORD colon
+            mov dword [mode], COMPILE
+        ENDWORD colon, ":", (IMMEDIATE)
+
+    And I've got two different definitions of 'meow' all
+    ready to go. They're both called "meow" in the
+    dictionary, but one of them has an IMMEDIATE flag and
+    the other has the COMPILE flag to specify which mode
+    they should match. The only difference is that they
+    print different strings.
+
+    If all goes well, the "input buffer" string I set above
+    should print two immediate meows and then compile three
+    compile meows and an exit and then run that...
+
+$ mr
+Immediate Meow!
+Immediate Meow!
+Meow.
+Meow.
+Meow.
+
+    Wow!
+
+    So I guess I've done two of the four TODOs I set at the
+    start of this log above:
+
+    [ ] colon word store name somewhere
+    [x] find should also match mode flag (use &)
+    [ ] semicolon should write tail
+    [x] immediate mode should find and exec words...somehow
+
+    The colon word isn't storing the word name and there's
+    no semicolon yet, so I'm not adding the new words to the
+    dictionary yet, but I also made progress in other areas.
+
+    I'll start a new log now with the other two TODOs.
+
+    See you in log05.txt!

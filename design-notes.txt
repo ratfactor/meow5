@@ -28,10 +28,10 @@ be so easy to get wrapped up in shaving those yaks and choosing
 juuuuuust the right colors for that bike shed...
 
 ===========================================================
-Challenge: how to have dictionary words that can be called in meow5 itself
-to form the basis of the language (specifically, 'find', 'inline', etc.)?
-The "tails" that make them words make them not function as good assembly
-citizens.
+DONE: Challenge: how to have dictionary words that can be called in
+meow5 itself to form the basis of the language (specifically,
+'find', 'inline', etc.)?  The "tails" that make them words make
+them not function as good assembly citizens.
 
 Right now, I've got a temporary variable in BSS that functions as a
 single return address for these words.
@@ -39,12 +39,14 @@ single return address for these words.
 What I think I might need to do is make a macro that detects
 that a return is requested and then does it.
 
+YUP, I WENT WITH THIS ONE:
 OR have two labels at the end of those words - one that is the end when
 you inline/compile it as a word and the 'tail' label. The length of
 the word would be considered the instructions before the "return"
 jump mechanism. So when inlined, it wouldn't even check for a jump,
 it would just flow on through to the next word.
 
+Still TODO, but next up:
 And I think i'll probably need to have a mini-stack for return addresses
 in this tiny subset of words-that-can-be-called-like-functions. Just a
 handful of nested calls (i'm not going to use recursion or anything like
@@ -54,17 +56,6 @@ that):
     return_stack_pointer: resb 4
 
 Something like that.
-And two macros:
-
-    CALLWORD
-    RETURN
-
-Again, this is only to boostrap the bare minimum number of words needed
-to compile the rest of the interpreter via the "normal" inline-and-execute
-mechanisms.
-
-I do have the beginnings of the above DONE for now.
-
 
 ===========================================================
 Display machine code (at least) and all 'tail' meta-info
@@ -74,7 +65,7 @@ but I know I've gotta hold off on the curtains and carpet
 and get the walls and floors built first..
 
 ===========================================================
-have explicit interpret-time vs comp-time context words.
+DONE: have explicit interpret-time vs comp-time context words.
 
 Regular interpret-time:
 
@@ -126,7 +117,7 @@ Typical usage notes (JF = JONESFORTH)
     EIP: instruction pointer!
 
 ===========================================================
-DONE-ish: Hmmm... as much as possible, I'll use the stack and
+DONE: Hmmm... as much as possible, I'll use the stack and
 other in-memory pointers to avoid having to think about
 explicit registers as much as possible. Certainly some
 of the ones needed for a traditional "threaded interpreted"

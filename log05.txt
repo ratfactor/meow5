@@ -1,0 +1,31 @@
+    Howdy! So I've got immediate and compile modes basically
+    working.  Now I've got two TODOs carrying over from the
+    last log and I'll add some new ones. I'm gonna put this
+    in the order I think they should probably be done, too:
+
+        [ ] turn return_addr into a stack so i can call
+            words from words
+        [ ] make a "print" word and use it
+        [ ] colon word store name somewhere
+        [ ] semicolon should write tail
+
+    From there, I think the roadmap will be fairly clear and
+    largely driven by whatever I think will be useful or fun
+    to grow the language.
+
+        * Print dictionary/word tails
+        * How to handle variables and strings
+        * Interactive REPL
+        * ANSI colors
+        * Print current stack (automatically in REPL?)
+        * Write out any word as an ELF executable?
+        * Other debugging features?
+        * Some simple benchmarks - size vs speed
+
+    This whole thing is just an experiment in simplicity by
+    taking a concept to extremes (in a good way) so I want
+    to keep it tiny and comprehensible. Too many features
+    will detract from that, so I'll need to pick them
+    carefully.
+
+

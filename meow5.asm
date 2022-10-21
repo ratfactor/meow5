@@ -10,7 +10,7 @@
 %assign SYS_WRITE 4
 
 ; word flags (can have 32 of these if needed)
-%assign COMPILED  00000001b
+%assign COMPILE  00000001b
 %assign IMMEDIATE 00000010b
 
 ; ----------------------------------------------------------
@@ -34,7 +34,7 @@ meow_str:
     db `Meow.\n`
 meow_str_end:
 imm_meow_str:
-    db `Meow!\n`
+    db `Immediate Meow!\n`
 imm_meow_str_end:
 
 ; Find failed error message
@@ -54,14 +54,14 @@ temp_exit_name: db 'exit', 0
 ; NOTE: This buffer will move to the BSS section when I
 ; start reading real input.
 input_buffer_start:
-    db 'meow meow meow meow meow exit', 0
+    db 'meow meow : meow meow meow exit', 0
 input_buffer_end:
 
 ; ----------------------------------------------------------
 ; MACROS!
 ; ----------------------------------------------------------
 
-%macro CALLWORD 1 ; takes label of word to call
+%macro CALLWORD 1 ; takes label/addr of word to call
     ; For faking call/ret to word as if 'twas a function
     ; within assembly while creating the meow5 executable.
     ;
@@ -98,10 +98,16 @@ input_buffer_end:
         dd LAST_WORD_TAIL ; 32b address, linked list
         %define LAST_WORD_TAIL tail_%1
         dd (end_%1 - %1)  ; 32b length of word machine code
+        dd (tail_%1 - %1) ; 32b distance from tail to start
         dd %3             ; 32b flags for word
         db %2, 0          ; xxb null-terminated name string
 %endmacro
 
+; Memory offsets for each item in tail:
+%define T_CODE_LEN    4
+%define T_CODE_OFFSET 8
+%define T_FLAGS       12
+%define T_NAME        16
 
 ; ----------------------------------------------------------
 ; TEXT - executable program - starting with words
@@ -116,7 +122,7 @@ DEFWORD exit
     pop ebx ; param1: exit code
     mov eax, SYS_EXIT
     int 0x80
-ENDWORD exit, "exit", (COMPILED | IMMEDIATE) 
+ENDWORD exit, "exit", (COMPILE | IMMEDIATE) 
 
 DEFWORD imm_meow
     mov ebx, STDOUT
@@ -132,16 +138,17 @@ DEFWORD meow
     mov edx, (meow_str_end - meow_str) ; str length
     mov eax, SYS_WRITE
     int 0x80
-ENDWORD meow, "meow", (COMPILED)
+ENDWORD meow, "meow", (COMPILE)
 
 DEFWORD inline
     pop esi ; param1: tail of word to inline
     mov edi, [here]    ; destination
-    mov ecx, [esi + 4] ; get len into ecx
-    sub esi, ecx       ; sub len from  esi (start of code)
-    rep movsb          ; copies from esi to esi+ecx into edi
-    add edi, ecx       ; update here pointer...
-    mov [here], edi    ; ...and store it
+    mov eax, [esi + T_CODE_LEN]    ; get len of code
+    mov ebx, [esi + T_CODE_OFFSET] ; get start of code
+    sub esi, ebx    ; set start of code for movsb
+    mov ecx, eax    ; set len of code for movsb
+    rep movsb       ; copy [esi]...[esi+ecx] into [edi]
+    add [here], eax ; save current position
 ENDWORD inline, "inline", (IMMEDIATE)
 
 DEFWORD find
@@ -157,16 +164,16 @@ DEFWORD find
     cmp edx, 0  ; a null pointer (0) is end of list
     je .not_found
     ; First, see if this word is for the mode we're
-    ; currently in (IMMEDIATE vs COMPILED):
+    ; currently in (IMMEDIATE vs COMPILE):
     mov eax, [mode]
-    and eax, [edx + 8] ; see if mode bit is set in word tail
+    and eax, [edx + T_FLAGS] ; see if mode bit is set in word tail
     cmp eax, 0
     jz .try_next_word ; bit wasn't set to match this mode
     ; Now we'll compare name to find vs this dictionary name
     ; (ebx vs edx) byte-by-byte until a mismatch or one hits
     ; a 0 terminator first.  Only having all correct letters
     ; AND hitting 0 at the same time is a match.
-    lea ebx, [edx + 12] ; set dict. word name pointer
+    lea ebx, [edx + T_NAME] ; set dict. word name pointer
     mov ecx, 0          ; reset byte offset counter
 .compare_names_loop:
 	mov al, [ebp + ecx] ; get next to-find name byte
@@ -232,6 +239,11 @@ DEFWORD get_token
     push DWORD token_buffer     ; return str address
 ENDWORD get_token, "get_token", (IMMEDIATE)
 
+DEFWORD colon
+    ; just set mode for now...will eventually
+    ; get name from next token and store it...
+    mov dword [mode], COMPILE
+ENDWORD colon, ":", (IMMEDIATE)
 
 ; ----------------------------------------------------------
 ; PROGRAM START!
@@ -241,7 +253,8 @@ _start:
     cld    ; use increment order for certain cmds
 
     ; Start in immediate mode - execute words immediately!
-    mov dword [mode], IMMEDIATE;
+    mov dword [mode], IMMEDIATE
+    ;mov dword [mode], COMPILE
 
 	; Here points to the current spot where we're going to
 	; inline ("compile") the next word.
@@ -256,19 +269,29 @@ _start:
     ; more input. But for now, set to start of buffer:
     mov dword [input_buffer_pos], input_buffer_start
 
-	; ----------------------------------------------------
-    ; Interpreter!
-    ; ----------------------------------------------------
+; ----------------------------------------------------------
+; Interpreter!
+; ----------------------------------------------------------
 get_next_token:
     CALLWORD get_token
     cmp dword [esp], 0  ; check return without popping
     je .run_it           ; all out of tokens!
-    CALLWORD find       ; find token (ignore error)
+    CALLWORD find       ; find token, returns tail addr
     cmp dword [esp], 0  ; check return without popping
     je .token_not_found
+    cmp dword [mode], IMMEDIATE
+    je .exec_word
     CALLWORD inline     ; inline it!!!
     jmp get_next_token
-.run_it:
+.exec_word:
+    ; Run current word in immediate mode!
+    ; We currently have the tail of a found word.
+    pop eax ; addr of word tail left on stack by 'find'
+    mov ebx, [eax + T_CODE_OFFSET]
+    sub eax, ebx ; set eax to start of word's machine code
+    CALLWORD eax ; call word with that addr
+    jmp get_next_token
+.run_it: ; By "it" I mean the code we've compiled/inlined.
     push 0           ; push exit code to stack for exit
     jmp data_segment ; jump to the "compiled" program
     ; NOT expecting a return - for now, this test
