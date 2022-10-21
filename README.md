@@ -6,7 +6,8 @@ thoughts (also kinda functions as a vague todo/done list).
 
 **Update:** Defining a single word in a string, tokenizing the
 string into "words", finding those words by name, inlining them,
-and executing the program!
+and executing the program! Now have immediate vs compile mode,
+switchable with ':' word.
 
 A Forth-like language that is conCATenative in two ways:
 

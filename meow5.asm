@@ -22,9 +22,12 @@ last: resb 4            ; Pointer to last defined word tail
 data_segment: resb 1024 ; We inline ("compile") here!
 here: resb 4            ; Current data_segment pointer
 meow_counter: resb 1    ; Will count the five meows
-return_addr: resb 4     ; to avoid messing with stack!
 token_buffer: resb 32   ; For get-token
 input_buffer_pos: resb 4 ; Save position of read tokens
+
+; Return stack for immediate mode execution only
+return_stack: resb 512  ; Not expecting deep calls... 
+return_ptr:   resb 4    ; To "push/pop" return stack
 
 ; ----------------------------------------------------------
 ; DATA - defined values
@@ -64,18 +67,13 @@ input_buffer_end:
 %macro CALLWORD 1 ; takes label/addr of word to call
     ; For faking call/ret to word as if 'twas a function
     ; within assembly while creating the meow5 executable.
-    ;
-    ; This single return address will surely need to be
-    ; upgraded to a stack as soon as I 'call' a word from
-    ; another word? We'll see.
-    ; (There won't be any such thing as "calling" words
-    ; within compiled words since the invocations will
-    ; inline the whole callee!)
-    ;
-    ; Note that '%%return_to' is a macro-local label.
-        mov dword [return_addr], %%return_to ; CALLWORD
+        mov eax, [return_ptr] ; current return stack pos
+        add eax, 4            ; advance it (grow fwd)
+        mov [return_ptr], eax ; save pos
+        mov dword [eax], %%return_to ; CALLWORD
         jmp %1                               ; CALLWORD
     %%return_to:                             ; CALLWORD
+    ; Note that '%%return_to' is a macro-local label.
 %endmacro
 
 %macro DEFWORD 1 ; takes name of word to make
@@ -93,7 +91,9 @@ input_buffer_end:
     end_%1:
         ; If we've called this in immediate mode, use the
         ; return address. This part won't be inlined.
-        jmp [return_addr]
+        mov eax, [return_ptr] ; current return stack pos
+        sub dword [return_ptr], 4 ; "pop" return stack
+        jmp [eax]             ; go to return addr!
     tail_%1:
         dd LAST_WORD_TAIL ; 32b address, linked list
         %define LAST_WORD_TAIL tail_%1
@@ -231,12 +231,13 @@ DEFWORD get_token
     cmp ecx, 0         ; did we have anything?
     jne .return_token  ; we have a token
     push DWORD 0       ; empty-handed
-    jmp [return_addr]
+    jmp .return
 .return_token:
     lea eax, [ebx + ecx]
     mov [input_buffer_pos], eax ; save position
     mov [edx + ecx], byte 0     ; terminate str null
     push DWORD token_buffer     ; return str address
+.return:
 ENDWORD get_token, "get_token", (IMMEDIATE)
 
 DEFWORD colon
@@ -268,6 +269,10 @@ _start:
     ; This will probably _really_ get set when we read
     ; more input. But for now, set to start of buffer:
     mov dword [input_buffer_pos], input_buffer_start
+
+    ; Initialize return stack pointer to point at the
+    ; beginning of the return stack reserved memory:
+    mov dword [return_ptr], return_stack
 
 ; ----------------------------------------------------------
 ; Interpreter!

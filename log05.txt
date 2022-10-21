@@ -28,4 +28,44 @@
     will detract from that, so I'll need to pick them
     carefully.
 
+    Okay, I'll start with turning the single return address
+    I'm currently using for immediate word calls into a
+    proper return stack. Here's the BSS reservations:
 
+        return_stack: resb 512
+        return_ptr:   resb 4
+
+    And I've modified the CALLWORD and ENDWORD macros to
+    push and pop the return stack appropriately.
+
+    I think it's worth noting that I'm extremely not
+    concerned about performance in immediate mode because
+    I'm expecting that to be pretty much always be invoked
+    by the user. The compiled code doesn't use this return
+    stack because nothing ever gets called - it'll just be a
+    continuous flow of instructions!
+
+    Anyway, let's see what I've got when I try the new
+    return stack:
+
+Program received signal SIGSEGV, Segmentation fault.
+get_next_token () at meow5.asm:73
+73	        mov dword [eax], %%return_to ; CALLWORD
+
+    Oh, wait! I forgot to initialize the return_ptr so it
+    starts off pointing at the start of return_stack! So of
+    course it's gonna segfault - I'm trying to mov to
+    address 0!
+
+Program received signal SIGSEGV, Segmentation fault.
+0x0804a689 in return_ptr ()
+
+    Oops! And that one is because I was trying to jump to
+    the address in return_ptr, not to where it _pointed to_!
+
+Program received signal SIGSEGV, Segmentation fault.
+0x0804b000 in ?? ()
+
+    Yuck, that one will be in the compiled code.
+
+    I think I'll call it a night.
