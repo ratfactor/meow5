@@ -57,7 +57,8 @@ temp_exit_name: db 'exit', 0
 ; NOTE: This buffer will move to the BSS section when I
 ; start reading real input.
 input_buffer_start:
-    db 'meow meow : meow meow meow exit', 0
+;    db 'meow meow : meow meow meow exit', 0
+    db 'meow bar foo foo', 0
 input_buffer_end:
 
 ; ----------------------------------------------------------
@@ -246,6 +247,17 @@ DEFWORD colon
     mov dword [mode], COMPILE
 ENDWORD colon, ":", (IMMEDIATE)
 
+DEFWORD foo
+    CALLWORD bar
+    push 0 ; for exit
+    CALLWORD exit
+ENDWORD foo, "foo", (IMMEDIATE)
+
+DEFWORD bar
+    CALLWORD imm_meow
+ENDWORD bar, "bar", (IMMEDIATE)
+
+
 ; ----------------------------------------------------------
 ; PROGRAM START!
 ; ----------------------------------------------------------
@@ -291,10 +303,10 @@ get_next_token:
 .exec_word:
     ; Run current word in immediate mode!
     ; We currently have the tail of a found word.
-    pop eax ; addr of word tail left on stack by 'find'
-    mov ebx, [eax + T_CODE_OFFSET]
-    sub eax, ebx ; set eax to start of word's machine code
-    CALLWORD eax ; call word with that addr
+    pop ebx ; addr of word tail left on stack by 'find'
+    mov eax, [ebx + T_CODE_OFFSET]
+    sub ebx, eax ; set to start of word's machine code
+    CALLWORD ebx ; call word with that addr (via reg)
     jmp get_next_token
 .run_it: ; By "it" I mean the code we've compiled/inlined.
     push 0           ; push exit code to stack for exit

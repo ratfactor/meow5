@@ -69,3 +69,60 @@ Program received signal SIGSEGV, Segmentation fault.
     Yuck, that one will be in the compiled code.
 
     I think I'll call it a night.
+
+    Next night: Nope! It was in immediate word execution and
+    it was pretty silly. I'm doing a bit of a hack to
+    perform immediate word execution - passing a register to
+    the CALLWORD macro instead of an address literal. Turns
+    out, the register I was using for this was eax. And,
+    naturally, that's the register I used to implement the
+    new call stack stuff in CALLWORD!
+
+    Changing this:
+
+        CALLWORD eax
+
+    To this:
+
+        CALLWORD ebx
+
+    And let's see if we can at least do what we could do
+    before I made my changes:
+
+$ mr
+Immediate Meow!
+Immediate Meow!
+Meow.
+Meow.
+Meow.
+
+    Nice. So then I can move on to new functionality. Let's
+    try a nested call. I'll make some simple test words:
+
+        DEFWORD foo
+            CALLWORD bar
+            push 0 ; for exit
+            CALLWORD exit
+        ENDWORD foo, "foo", (IMMEDIATE)
+
+        DEFWORD bar
+            CALLWORD meow
+        ENDWORD bar, "bar", (IMMEDIATE)
+
+    And calling them with this input string:
+
+        db 'meow bar foo', 0
+
+    Should result in three immediate meows and exit:
+
+$ mr
+Immediate Meow!
+Immediate Meow!
+Immediate Meow!
+
+    Wow, nice. So I can allow words to call other words now,
+    which will let me clean up some of the most redundant
+    bits of code (like string printing).
+
+    I think next will be a "print" word that prints
+    null-terminated strings.
