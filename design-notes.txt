@@ -1,11 +1,15 @@
-Just some quick notes to self for now - just trying not
-to forget what I woke up with in my head!
+***********************************************************
+*                   Meow5 Design Notes                    *
+***********************************************************
+    Just some quick notes to self for now - just trying not
+    to forget what I woke up with in my head!
 
 ===========================================================
 DONE: write header AFTER the word (to make it dirt-simple
 to calc length of machine instructions and write it there)
 
-DONE: use linked list like i learned how to implement in jonesforth
+DONE: use linked list like i learned how to implement in
+jonesforth
 
 ===========================================================
 get as quickly as possible to
@@ -17,40 +21,53 @@ first compound word after meow5 could be:
     : exit0 0 exit ;
     
 ===========================================================
-Idea: Add description/usage instructions strings to word 'tails'
-so they can be read (maybe even searched?) while in the interpreter.
-A totally easy feature that wouldn't have made sense on the old
-memory-started machines of the late 1960s. I'm thinking that some
-stack annotations could be semi-automated, too. Well, there is
-a ton of low-hanging usability fruit once you go down this
-avenue. Gotta stick with the minimum viable PoC for now...would
-be so easy to get wrapped up in shaving those yaks and choosing
-juuuuuust the right colors for that bike shed...
+Idea: Add description/usage instructions strings to word
+'tails' so they can be read (maybe even searched?) while in
+the interpreter.  A totally easy feature that wouldn't have
+made sense on the old memory-started machines of the late
+1960s. I'm thinking that some stack annotations could be
+semi-automated, too. Well, there is a ton of low-hanging
+usability fruit once you go down this avenue. Gotta stick
+with the minimum viable PoC for now...would be so easy to
+get wrapped up in shaving those yaks and choosing juuuuuust
+the right colors for that bike shed...
+
+Also consider automatically generating the "stack effect"
+comments that explain the input and output params on the
+stack.
+(*Also* consider (optionally) enforcing them!)
 
 ===========================================================
-DONE: Challenge: how to have dictionary words that can be called in
-meow5 itself to form the basis of the language (specifically,
-'find', 'inline', etc.)?  The "tails" that make them words make
-them not function as good assembly citizens.
+I _think_ this is a rule: COMPILE mode words can _only_ be
+defined via 'colon' OR composed entirely of machine code
+with no CALLWORD macros?
 
-Right now, I've got a temporary variable in BSS that functions as a
-single return address for these words.
+===========================================================
+DONE: Challenge: how to have dictionary words that can be
+called in meow5 itself to form the basis of the language
+(specifically, 'find', 'inline', etc.)?  The "tails" that
+make them words make them not function as good assembly
+citizens.
+
+Right now, I've got a temporary variable in BSS that
+functions as a single return address for these words.
 
 What I think I might need to do is make a macro that detects
 that a return is requested and then does it.
 
-YUP, I WENT WITH THIS ONE:
-OR have two labels at the end of those words - one that is the end when
-you inline/compile it as a word and the 'tail' label. The length of
-the word would be considered the instructions before the "return"
-jump mechanism. So when inlined, it wouldn't even check for a jump,
-it would just flow on through to the next word.
+DONE: Yup, went with this idea: OR have two labels at the
+end of those words - one that is the end when you
+inline/compile it as a word and the 'tail' label. The length
+of the word would be considered the instructions before the
+"return" jump mechanism. So when inlined, it wouldn't even
+check for a jump, it would just flow on through to the next
+word.
 
-Still TODO, but next up:
-And I think i'll probably need to have a mini-stack for return addresses
-in this tiny subset of words-that-can-be-called-like-functions. Just a
-handful of nested calls (i'm not going to use recursion or anything like
-that):
+DONE: And I think i'll probably need to have a mini-stack
+for return addresses in this tiny subset of
+words-that-can-be-called-like-functions. Just a handful of
+nested calls (i'm not going to use recursion or anything
+like that):
 
     return_stack:         resb 32
     return_stack_pointer: resb 4
@@ -65,23 +82,18 @@ but I know I've gotta hold off on the curtains and carpet
 and get the walls and floors built first..
 
 ===========================================================
-DONE: have explicit interpret-time vs comp-time context words.
+DONE: have explicit interpret-time vs comp-time context
+words.
 
 Regular interpret-time:
-
     : foo 1 2 add ;
-
 Compile-time:
-
     :comp if ... ;
-
 And when searching, we can skip any words that don't
 match:
-
     * name length
     * name
     * context (compile or interpret)
-
 Which ALSO means that we can define two different words
 with the same name for compile/run (or interp/comp) time
 

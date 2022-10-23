@@ -124,5 +124,176 @@ Immediate Meow!
     which will let me clean up some of the most redundant
     bits of code (like string printing).
 
-    I think next will be a "print" word that prints
+    I think next will be a 'print' word that prints
     null-terminated strings.
+
+    I'll have 'print' call a 'strlen' word to calculate a
+    null-terminated string to get its length as well.
+
+    Since this is the first time I'll have a real word that
+    calls another word in Meow5, it occurs to me that this
+    version of 'print' can *only* be an immediate mode word
+    because my compiler won't be able to inline the 'strlen'
+    machine code inside of print. Thus, only words composed
+    entirely out of other words OR completely self-contained
+    can be COMPILE mode words???
+
+    So at some point, I'll need to re-define 'print' by
+    "compiling" it properly in the Meow5 fashion (inlining
+    'strlen') so it can be compiled into other words!
+
+    Ah, jeez, and then I've got a whole chicken-and-egg
+    problem where calling a "compiled" word needs to happen
+    after it's been compiled - so I can't use it until it's
+    been compiled. Which means I've got to be real careful
+    about the "bootstrapping" order of my definitions.
+
+    Well, that's what this whole wacky experiment is all
+    about and by keeping it small, I can re-write as needed.
+
+    MOVING ON, let's get this immediate mode-only print
+    working!!!
+
+    Okay, got it working. Here's 'strlen' and 'print'
+    stripped of comments to show how simple they are and how
+    nice and neat my token_not_found printing has become:
+
+        DEFWORD strlen
+            mov eax, [esp]
+            mov ecx, 0
+        .find_null:
+            cmp byte [eax + ecx], 0
+            je .done
+            inc ecx
+            jmp .find_null
+        .done:
+            push ecx
+        ENDWORD strlen, "strlen", (IMMEDIATE & COMPILE)
+
+        DEFWORD print
+            CALLWORD strlen
+            mov ebx, STDOUT
+            pop edx
+            pop ecx
+            mov eax, SYS_WRITE
+            int 0x80
+        ENDWORD print, "print", (IMMEDIATE)
+
+        ...
+
+        .token_not_found:
+            push not_found_str1
+            CALLWORD print
+            push token_buffer
+            CALLWORD print
+            push not_found_str2
+            CALLWORD print
+            CALLWORD exit
+
+    Having a print word to call reduced token_not_found from
+    over 20 lines of repetitious code to this.
+
+    But for the reasons I explain above, I can't use 'print'
+    in my compiled 'meow' word or any other compiled words.
+    Which left me in a bit of a quandry.
+
+    How do I "inline" the 'strlen' code into 'print' in the
+    meow5 interpreter when it's being assembled (or when it
+    starts up).
+
+    I _could_ define all compound words as strings and
+    actually run the interpreter on them at startup...
+
+        db ": print strlen print_with_len ;"
+
+    ...but I feel like that's too inefficient even for this
+    toy language.
+
+    Or I could limit myself to a CALLWORD depth of one.
+    Which would just require that I always call 'strlen'
+    before print:
+
+        .token_not_found:
+            push not_found_str1
+            CALLWORD strlen
+            CALLWORD print
+            push token_buffer
+            CALLWORD strlen
+            CALLWORD print
+            push not_found_str2
+            CALLWORD strlen
+            CALLWORD print
+            CALLWORD exit
+
+    But yuck. And I feel like I'm likely to regret having
+    that limitation later when I'm adding more advanced
+    functionality?
+
+    So how do I inline in NASM itself?
+
+    Well, I've had all day to think about it and the answer
+    was kind of staring me right in the face: macros!
+
+    I can put the 'strlen' code in a macro and then use that
+    to define a 'strlen' word _and_ embed it directly into
+    'print' as if I'd typed it.
+
+    Then I did the same thing with 'print' itself (I wonder
+    if there's a limit to the depth of these macros
+    containing macros in NASM?) and then I could use it in
+    the 'meow' words also.
+
+    With the actual strlen and print code removed, here's
+    what all four words look like now:
+
+        %macro strlen_code 0
+            <code>
+        %endmacro
+        DEFWORD strlen
+            strlen_code
+        ENDWORD strlen, "strlen", (IMMEDIATE & COMPILE)
+
+        %macro print_code 0
+            strlen_code
+            <code>
+        %endmacro
+        DEFWORD print ; (straddr) print ()
+            print_code
+        ENDWORD print, "print", (IMMEDIATE & COMPILE)
+
+        DEFWORD imm_meow
+            push imm_meow_str
+            print_code
+        ENDWORD imm_meow, "meow", (IMMEDIATE)
+
+        DEFWORD meow
+            push meow_str
+            print_code
+        ENDWORD meow, "meow", (COMPILE)
+
+    And does it still work?
+
+        db 'meow : meow meow meow exit', 0
+
+    Should print one immediate meow, three compiled meows
+    and an exit:
+
+$ mr
+Immediate Meow!
+Meow.
+Meow.
+Meow.
+
+    You bet it does.
+
+    Using macros this way to inline code solves a lot of
+    problems. I'm even wondering if I can remove the
+    CALLWORD macros and the return aparatus, etc?
+
+    Or wait, I still need to return when calling these in
+    immediate mode in the interpreter, right?
+
+    For now, I want to get the colon and semicolon words
+    working so I can make the _real_ meow5 word as fortold
+    by the prophets.
+

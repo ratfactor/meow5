@@ -34,31 +34,23 @@ return_ptr:   resb 4    ; To "push/pop" return stack
 ; ----------------------------------------------------------
 section .data
 meow_str:
-    db `Meow.\n`
+    db `Meow.\n`,0
 meow_str_end:
 imm_meow_str:
-    db `Immediate Meow!\n`
+    db `Immediate Meow!\n`,0
 imm_meow_str_end:
 
 ; Find failed error message
 not_found_str1:
-    db 'Could not find word "'
+    db 'Could not find word "',0
 not_found_str2:
-    db `"\n`
-not_found_end:
-
-; I can't get these from the user yet, but I'm pretending we
-; did. These are the word names we'll 'find' and 'inline' to
-; compile.
-temp_meow_name: db 'meow', 0
-temp_exit_name: db 'exit', 0
+    db `"\n`,0
 
 ; I'm pretending to get this string from an input source:
 ; NOTE: This buffer will move to the BSS section when I
 ; start reading real input.
 input_buffer_start:
-;    db 'meow meow : meow meow meow exit', 0
-    db 'meow bar foo foo', 0
+    db 'meow : meow meow meow exit', 0
 input_buffer_end:
 
 ; ----------------------------------------------------------
@@ -124,22 +116,6 @@ DEFWORD exit
     mov eax, SYS_EXIT
     int 0x80
 ENDWORD exit, "exit", (COMPILE | IMMEDIATE) 
-
-DEFWORD imm_meow
-    mov ebx, STDOUT
-    mov ecx, imm_meow_str                  ; str start addr
-    mov edx, (imm_meow_str_end - imm_meow_str) ; str length
-    mov eax, SYS_WRITE
-    int 0x80
-ENDWORD imm_meow, "meow", (IMMEDIATE)
-
-DEFWORD meow
-    mov ebx, STDOUT
-    mov ecx, meow_str                  ; str start addr
-    mov edx, (meow_str_end - meow_str) ; str length
-    mov eax, SYS_WRITE
-    int 0x80
-ENDWORD meow, "meow", (COMPILE)
 
 DEFWORD inline
     pop esi ; param1: tail of word to inline
@@ -247,16 +223,48 @@ DEFWORD colon
     mov dword [mode], COMPILE
 ENDWORD colon, ":", (IMMEDIATE)
 
-DEFWORD foo
-    CALLWORD bar
-    push 0 ; for exit
-    CALLWORD exit
-ENDWORD foo, "foo", (IMMEDIATE)
+; Gets length of null-terminated string
+; (Note that this doesn't pop the string's start address
+; because I think it's silly to have to duplicate the
+; address on the stack when you _probably_ don't want to do
+; that. Instead, we'll 'drop' if that's what we want later.)
+%macro strlen_code 0
+    mov eax, [esp] ; get string addr (without popping!)
+    mov ecx, 0     ; byte counter will contain len
+.find_null:
+    cmp byte [eax + ecx], 0 ; null term?
+    je .done                ; yes, done
+    inc ecx                 ; no, continue
+    jmp .find_null          ; loop
+.done:
+    push ecx           ; return len
+%endmacro
+DEFWORD strlen ; (straddr) strlen (straddr len)
+    strlen_code
+ENDWORD strlen, "strlen", (IMMEDIATE & COMPILE)
 
-DEFWORD bar
-    CALLWORD imm_meow
-ENDWORD bar, "bar", (IMMEDIATE)
+; Prints a null-terminated string by address on stack.
+%macro print_code 0
+    strlen_code        ; (after: straddr, len)
+    mov ebx, STDOUT    ; write destination file
+    pop edx            ; strlen
+    pop ecx            ; start address
+    mov eax, SYS_WRITE ; syscall
+    int 0x80           ; interrupt to linux!
+%endmacro
+DEFWORD print ; (straddr) print ()
+    print_code
+ENDWORD print, "print", (IMMEDIATE & COMPILE)
 
+DEFWORD imm_meow
+    push imm_meow_str
+    print_code
+ENDWORD imm_meow, "meow", (IMMEDIATE)
+
+DEFWORD meow
+    push meow_str
+    print_code
+ENDWORD meow, "meow", (COMPILE)
 
 ; ----------------------------------------------------------
 ; PROGRAM START!
@@ -315,32 +323,12 @@ get_next_token:
     ; should cleanly exit in whatever we compiled into
     ; the data_segment!
 .token_not_found:
-    ; Repetitous temporary code until we get fancy!
-    ; output fd, string start, string len...
-    ; Message 1/3:
-    mov ebx, STDOUT
-    mov ecx, not_found_str1
-    mov edx, (not_found_str2 - not_found_str1)
-    mov eax, SYS_WRITE
-    int 0x80
-    ; Message 2/3:  calc strlen of token...
-    ; Someday I'll be able to call a word to do this.
-    mov ecx, token_buffer ; token will always be here
-    mov edx, 0 ; will contain len
-.find_tok_end:
-    cmp byte [ecx + edx], 0 ; null term?
-    je .print_bad_tok
-    inc edx            ; not yet, increase len
-    jmp .find_tok_end
-.print_bad_tok:
-    ; now edx and ecx should be set
-    mov ebx, STDOUT
-    mov eax, SYS_WRITE
-    int 0x80
-    ; Message 3/3:
-    mov ebx, STDOUT
-    mov ecx, not_found_str2
-    mov edx, (not_found_end - not_found_str2)
-    mov eax, SYS_WRITE
-    int 0x80
+    ; TODO: print which mode we were in when we were
+    ; looking! (IMMEDIATE or COMPILE)
+    push not_found_str1
+    CALLWORD print
+    push token_buffer
+    CALLWORD print
+    push not_found_str2
+    CALLWORD print
     CALLWORD exit
