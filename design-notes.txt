@@ -38,7 +38,7 @@ stack.
 (*Also* consider (optionally) enforcing them!)
 
 ===========================================================
-I _think_ this is a rule: COMPILE mode words can _only_ be
+DONE/YES: A rule: COMPILE mode words can _only_ be
 defined via 'colon' OR composed entirely of machine code
 with no CALLWORD macros?
 
@@ -73,6 +73,13 @@ like that):
     return_stack_pointer: resb 4
 
 Something like that.
+
+NOTE: Turns out, an "inline all the things!" language can't
+have nested calls anyway (kinda obvious in retrospect) so
+I'm removing the return stack and replacing it with my
+original single return address. This is only used in
+immediate mode to return from a single word's immidate
+exection.
 
 ===========================================================
 Display machine code (at least) and all 'tail' meta-info

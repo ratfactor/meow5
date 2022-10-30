@@ -234,6 +234,11 @@ Immediate Meow!
     Well, I've had all day to think about it and the answer
     was kind of staring me right in the face: macros!
 
+    New TODO:
+
+      [ ] Create word code macros so words can be inlined
+          while in assembly.
+
     I can put the 'strlen' code in a macro and then use that
     to define a 'strlen' word _and_ embed it directly into
     'print' as if I'd typed it.
@@ -329,6 +334,10 @@ Meow.
        makes me think these should be separated to make
        them more generalized. More about that in a moment.
 
+       (NOTE: No, copystr doesn't actually contain 'strlen',
+       I was wrong about that. 'print' is the only word that
+       contains 'strlen'.)
+
     5. 'print' is used in a number of places, so that's
        been turned into a macro as well. Actually, it looks
        like I already noted that would be happening above.
@@ -391,6 +400,14 @@ Meow.
           instance of that in 'inline' - so maybe the two of
           them should share that functionality in something
           like a 'copymem' word?
+
+    (NOTE: After getting semicolon working, I realized that
+    I was being super premature about trying to factor
+    'strlen' out of 'copystr' and avoiding looping through
+    the word name string twice in semicolon. I mean, the
+    word name is only 32 bytes MAXIMUM right now. Also,
+    copystr doesn't even contain strlen - I had remembered
+    that incorrectly. So scratch those last two TODOs!)
 
     Okay, now I've written the two new words and am calling
     them to check the word:
@@ -545,4 +562,20 @@ Meow. Meow. Meow. Meow. Meow.
 
     Yahoo!!!
 
+    That completes the TODO list I'd built up:
 
+
+
+      [x] Turn return_addr into a stack so i can call words
+          from words (oops! turns out that doesn't make
+          sense when words are inlined...)
+      [x] make a "print" word and use it
+      [x] colon word store name somewhere
+      [x] semicolon should write tail
+      [x] Create word code macros so words can be inlined
+          while in assembly.
+      [x] Create new word: 'get_flags' will put 32 bits of
+          flags from a word's tail on the stack.
+      [x] Create new word: 'is_runcomp' will leave 0 on
+          the stack if RUNCOMP flag is NOT set in flags.
+      [x] Get 'semicolon' working.

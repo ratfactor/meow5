@@ -1,23 +1,25 @@
 # Meow5: "Meow. Meow. Meow. Meow. Meow."
 
-Note: This is a super early work in progress. Check the `log*.txt` files to see
-where I'm currently at! Also take a look at `design-notes.txt` for more ongoing
-thoughts (also kinda functions as a vague todo/done list).
+This is a work in progress. Check the `log*.txt` files to
+see where I'm currently at! Also take a look at
+`design-notes.txt` for more ongoing thoughts (also kinda
+functions as a vague todo/done list).
 
-**Update:** Defining a single word in a string, tokenizing the
-string into "words", finding those words by name, inlining them,
-and executing the program! Now have immediate vs compile mode,
-switchable with ':' word.
+Also note that this is Linux-only and is assembled with
+NASM.
+
+## What is Meow5?
 
 A Forth-like language that is conCATenative in two ways:
 
 1. "Point free" data flow
 2. Inlined functions
 
-In the **point free data flow sense**: Instead of being called with explicit
-named parameters ("points"), functions are "composed" so that each one takes
-as input what the previous one left behind. JavaScript programmers will recognize
-this style:
+In the **point free data flow sense**: Instead of being
+called with explicit named parameters ("points"), functions
+are "composed" so that each one takes as input what the
+previous one left behind. JavaScript programmers will
+recognize this style:
 
     people.map(get_names).filter(is_long).sort() // get sorted long names
 
@@ -25,39 +27,67 @@ Which might look like this in Forth:
 
     PEOPLE GETNAMES LONGNAMES SORT
 
-In the **inlined function** sense: all functions (and entire programs) are
-concatenated copies of other functions.
+In the **inlined function** sense: all functions (and entire
+programs) are concatenated copies of other functions.
 
-The first "point-free" sense is true of any Forth-like ("stack-based") language.
+The first "point-free" sense is true of any Forth-like
+("stack-based") language.
 
-The second sense is what's unique about Meow5. Using Forth notation and
-nomenclature, the following word "meow5"...:
+The second sense is what's unique about Meow5. Using Forth
+notation and nomenclature, the following word "meow5"...:
 
     : meow5 meow meow meow meow meow ;
 
 ...will be literally composed of five copies
 of the machine code that makes the word "meow". Crazy, right?
 
+(As you can see in my update below, this works!)
+
+## Progress
+
+The proof of concept works!
+
+Proof of concept input string:
+
+```
+   : meow5 meow meow meow meow meow ;
+   meow5
+   newline
+   exit
+```
+
+Output:
+
+```
+    Meow. Meow. Meow. Meow. Meow.
+```
+
+Cool! Now it's time to add functionality.
 
 
 ## Why?
 
 I want to see how **simple** a Forth-like language can be.
 
-My idea came about while studying Forth. A traditional "threaded interpreted"
-Forth goes to some pretty extreme lengths to conserve memory. The execution model
-is not only complicated, but seems also likely to not be all that great for efficiency
-on modern machines where memory is much more abundant and the bottleneck oftenseems to be
-getting data into the CPU fast enough.
+My idea came about while studying Forth. A traditional
+"threaded interpreted" Forth goes to some pretty extreme
+lengths to conserve memory. The execution model is not only
+complicated, but seems also likely to not be all that great
+for efficiency on modern machines where memory is much more
+abundant and the bottleneck oftenseems to be getting data
+into the CPU fast enough.
 
-In particular, the old Forth literature I have been reading is full of statements
-about needing to conserve the **few kilobytes of core memory** on a late 1960s machine.
-But even my most modest low-powered Celeron and Atom-based computers
-have **L1 CPU caches** that dwarf those quantities!
+In particular, the old Forth literature I have been reading
+is full of statements about needing to conserve the **few
+kilobytes of core memory** on a late 1960s machine.  But
+even my most modest low-powered Celeron and Atom-based
+computers have **L1 CPU caches** that dwarf those
+quantities!
 
-So, given the tiny size of the programs I was writing with my JONESFORTH port,
-I kept thinking, "how far could I get if I just inlined _everything_?" As in,
-actually made a copy of every word's machine instructions every time it is
+So, given the tiny size of the programs I was writing with
+my JONESFORTH port, I kept thinking, "how far could I get if
+I just inlined _everything_?" As in, actually made a copy of
+every word's machine instructions every time it is
 "compiled".
 
 In the name of simplicity, I'm also avoiding too many
@@ -112,7 +142,7 @@ would simply concatenate the entire contents of bar and 2foo:
         00A 00B
         00C 00D
 
-and ultimately an entire program would be just a single continuous
-stream of concatenated instructions.
+and ultimately an entire program would be just a single
+continuous stream of concatenated instructions.
 
 I expect this will be silly but fun and educational.

@@ -1,0 +1,23 @@
+    Well, log05.txt ended with some great excitement. I
+    double-checked and all of the open TODOs are now closed.
+
+    So I think I'll dip into design-notes.txt and pick the
+    next thing to do.
+
+    I just remembered one thing, I need to _remove_ a
+    feature: the return stack doesn't need to be a stack at
+    all because my "inline all the things!" language can't
+    have nested word calls anyway:
+
+        [ ] Replace return stack with single addr
+
+    So, that's not super rewarding, but I do enjoy deleting
+    uneeded code.
+
+    Oh, I know which feature I'm doing after that! Time to
+    reward myself for staying on track with something fun
+    and visual:
+
+        [ ] Pretty-print meta info about word!
+        [ ] Loop through dictionary, list all names
+        [ ] Loop through dictionary, pretty-print all
