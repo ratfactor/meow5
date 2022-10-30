@@ -10,19 +10,20 @@
 %assign SYS_WRITE 4
 
 ; word flags (can have 32 of these if needed)
-%assign COMPILE  00000001b
-%assign IMMEDIATE 00000010b
+%assign COMPILE   00000001b ; word can be compiled
+%assign IMMEDIATE 00000010b ; can be called in imm mode
+%assign RUNCOMP   00000100b ; word execs in comp mode
 
 ; ----------------------------------------------------------
 ; BSS - reserved space
 ; ----------------------------------------------------------
 section .bss
-mode: resb 4            ; 1=compile mode, 0=immediate mode
+mode: resb 4            ; IMMEDATE or COMPILE
 last: resb 4            ; Pointer to last defined word tail
 data_segment: resb 1024 ; We inline ("compile") here!
 here: resb 4            ; Current data_segment pointer
-meow_counter: resb 1    ; Will count the five meows
-token_buffer: resb 32   ; For get-token
+token_buffer: resb 32   ; For get_token
+name_buffer:  resb 32   ; For colon (copy of token)
 input_buffer_pos: resb 4 ; Save position of read tokens
 
 ; Return stack for immediate mode execution only
@@ -34,24 +35,16 @@ return_ptr:   resb 4    ; To "push/pop" return stack
 ; ----------------------------------------------------------
 section .data
 meow_str:
-    db `Meow.\n`,0
-meow_str_end:
-imm_meow_str:
-    db `Immediate Meow!\n`,0
-imm_meow_str_end:
-
-; Find failed error message
-not_found_str1:
-    db 'Could not find word "',0
-not_found_str2:
-    db `"\n`,0
+    db 'Meow. ',0
 
 ; I'm pretending to get this string from an input source:
 ; NOTE: This buffer will move to the BSS section when I
 ; start reading real input.
-input_buffer_start:
-    db 'meow : meow meow meow exit', 0
-input_buffer_end:
+input_buffer:
+    db ': meow5 meow meow meow meow meow ; '
+    db 'meow5 '
+    db 'newline '
+    db 'exit',0
 
 ; ----------------------------------------------------------
 ; MACROS!
@@ -74,6 +67,12 @@ input_buffer_end:
     %1:
 %endmacro
 
+%macro RETURN_CODE 0
+    mov eax, [return_ptr] ; current return stack pos
+    sub dword [return_ptr], 4 ; "pop" return stack
+    jmp [eax]             ; go to return addr!
+%endmacro
+
 %macro ENDWORD 3
     ; End a word definiton with a tail, etc.
     ; params:
@@ -82,11 +81,10 @@ input_buffer_end:
     ;   %3 - 32 bits of flags
     ; Here ends the machine code for the word:
     end_%1:
-        ; If we've called this in immediate mode, use the
-        ; return address. This part won't be inlined.
-        mov eax, [return_ptr] ; current return stack pos
-        sub dword [return_ptr], 4 ; "pop" return stack
-        jmp [eax]             ; go to return addr!
+        ; If we've called this in immediate mode, we'll
+        ; This part won't be inlined, so it won't get
+        ; in the way of the flow of "compiled" code.
+        RETURN_CODE
     tail_%1:
         dd LAST_WORD_TAIL ; 32b address, linked list
         %define LAST_WORD_TAIL tail_%1
@@ -117,7 +115,7 @@ DEFWORD exit
     int 0x80
 ENDWORD exit, "exit", (COMPILE | IMMEDIATE) 
 
-DEFWORD inline
+%macro INLINE_CODE 0
     pop esi ; param1: tail of word to inline
     mov edi, [here]    ; destination
     mov eax, [esi + T_CODE_LEN]    ; get len of code
@@ -126,7 +124,31 @@ DEFWORD inline
     mov ecx, eax    ; set len of code for movsb
     rep movsb       ; copy [esi]...[esi+ecx] into [edi]
     add [here], eax ; save current position
+%endmacro
+DEFWORD inline
+    INLINE_CODE
 ENDWORD inline, "inline", (IMMEDIATE)
+
+; Given a tail addr, leaves word's flags AND the tail addr
+%macro GET_FLAGS_CODE 0
+    mov ebp, [esp] ; get tail addr without popping
+    mov eax, [ebp + T_FLAGS] ; get flags!
+    push eax
+%endmacro
+DEFWORD get_flags ; (tail_addr) get_flags (tailaddr flags)
+    GET_FLAGS_CODE
+ENDWORD get_flags, "get_flags", (IMMEDIATE | COMPILE)
+
+; Consumes word flags, leaves truthy/falsy if RUNCOMP
+; flag existed. (Non-zero is true!)
+%macro IS_RUNCOMP_CODE 0
+    pop eax ; param: flags
+    and eax, RUNCOMP ; AND mask to leave truthy/falsy
+    push eax
+%endmacro
+DEFWORD is_runcomp ; (flags) is_runcomp (true/false)
+    IS_RUNCOMP_CODE
+ENDWORD is_runcomp, "is_runcomp", (IMMEDIATE | COMPILE)
 
 DEFWORD find
     pop ebp ; param1 - start of word string to find
@@ -171,7 +193,7 @@ DEFWORD find
 .done:
 ENDWORD find, "find", (IMMEDIATE)
 
-DEFWORD get_token
+%macro GET_TOKEN_CODE 0
     ; Returns (on stack) either:
     ;  * Address of null-termed token string or
     ;  * 0 if we're out of tokens
@@ -215,20 +237,18 @@ DEFWORD get_token
     mov [edx + ecx], byte 0     ; terminate str null
     push DWORD token_buffer     ; return str address
 .return:
+%endmacro
+DEFWORD get_token
+    GET_TOKEN_CODE
 ENDWORD get_token, "get_token", (IMMEDIATE)
 
-DEFWORD colon
-    ; just set mode for now...will eventually
-    ; get name from next token and store it...
-    mov dword [mode], COMPILE
-ENDWORD colon, ":", (IMMEDIATE)
 
 ; Gets length of null-terminated string
 ; (Note that this doesn't pop the string's start address
 ; because I think it's silly to have to duplicate the
 ; address on the stack when you _probably_ don't want to do
 ; that. Instead, we'll 'drop' if that's what we want later.)
-%macro strlen_code 0
+%macro STRLEN_CODE 0
     mov eax, [esp] ; get string addr (without popping!)
     mov ecx, 0     ; byte counter will contain len
 .find_null:
@@ -240,12 +260,27 @@ ENDWORD colon, ":", (IMMEDIATE)
     push ecx           ; return len
 %endmacro
 DEFWORD strlen ; (straddr) strlen (straddr len)
-    strlen_code
-ENDWORD strlen, "strlen", (IMMEDIATE & COMPILE)
+    STRLEN_CODE
+ENDWORD strlen, "strlen", (IMMEDIATE | COMPILE)
+
+; Prints a newline to STDOUT, no fuss
+%macro NEWLINE_CODE 0
+    mov eax, 0x0A      ; newline byte (into 4 byte reg)
+    push eax           ; put on stack so has addr
+    mov ebx, STDOUT    ; write destination file
+    mov edx, 1         ; length = 1 byte
+    mov ecx, esp       ; addr of stack (little-endian!)
+    mov eax, SYS_WRITE ; syscall
+    int 0x80           ; interrupt to linux!
+    pop eax            ; clear the newline from stack
+%endmacro
+DEFWORD newline ; () newline ()
+    NEWLINE_CODE
+ENDWORD newline, "newline", (IMMEDIATE | COMPILE)
 
 ; Prints a null-terminated string by address on stack.
-%macro print_code 0
-    strlen_code        ; (after: straddr, len)
+%macro PRINT_CODE 0
+    STRLEN_CODE        ; (after: straddr, len)
     mov ebx, STDOUT    ; write destination file
     pop edx            ; strlen
     pop ecx            ; start address
@@ -253,18 +288,117 @@ ENDWORD strlen, "strlen", (IMMEDIATE & COMPILE)
     int 0x80           ; interrupt to linux!
 %endmacro
 DEFWORD print ; (straddr) print ()
-    print_code
-ENDWORD print, "print", (IMMEDIATE & COMPILE)
+    PRINT_CODE
+ENDWORD print, "print", (IMMEDIATE | COMPILE)
 
-DEFWORD imm_meow
-    push imm_meow_str
-    print_code
-ENDWORD imm_meow, "meow", (IMMEDIATE)
+; Copy null-terminated string.
+%macro COPYSTR_CODE 0
+    pop edi ; dest
+    pop esi ; source
+    mov ecx, 0 ; index
+.copy_char:
+    mov  al, [esi + ecx] ; from source
+    mov  [edi + ecx], al ; to dest
+    inc  ecx
+    cmp al, 0            ; hit terminator?
+    jnz .copy_char
+%endmacro
+DEFWORD copystr ; (sourceaddr, destaddr) copystr ()
+    COPYSTR_CODE
+ENDWORD copystr, "copystr", (IMMEDIATE | COMPILE)
 
 DEFWORD meow
     push meow_str
-    print_code
+    PRINT_CODE
 ENDWORD meow, "meow", (COMPILE)
+
+DEFWORD colon
+    mov dword [mode], COMPILE
+    ; get name from next token and store it...
+    GET_TOKEN_CODE
+    push token_buffer ; source
+    push name_buffer  ; dest
+    COPYSTR_CODE      ; copy name into name_buffer
+    ; copy the here pointer so we have the start address
+    ; of the word
+    mov eax, [here]
+    push eax ; leave 'here' on stack - the start of the word
+ENDWORD colon, ":", (IMMEDIATE)
+
+; This exists just so we can inline it at the end of
+; word definitions with the semicolon (;) word.
+DEFWORD return
+    RETURN_CODE
+ENDWORD return, "return", (IMMEDIATE)
+
+; Does what ENDWORD macro does, but into memory
+DEFWORD semicolon
+    ; End of Machine Code
+    ; 'here' currently points to the end of the new word's
+    ; machine code. We need to save that.
+    mov eax, [here]
+    push eax ; push end of machine code to stack
+
+    ; Return Code
+    ; Inline 'return' before the tail to allow our new
+    ; word to be callable in immdiate mode.
+    ; (Future improvement: Don't include this if this is
+    ;  not an immediate-capable word!)
+    push tail_return ; push what to inline on stack
+    INLINE_CODE      ; inline the 'return' machine code
+
+    ; Start of Tail
+    ; The above inline will have advanced 'here' again.
+    mov eax, [here] ; Current 'here' position
+    mov ecx, eax    ; another copy, for tail start calc
+
+    ; Link previous word 'last'
+    ; dd LAST_WORD_TAIL ; 32b address, linked list
+    mov ebx, [last] ; get prev tail pointer 'last'
+    mov [eax], ebx ; link it here
+    mov [last], eax ; and store this tail as new 'last'
+    add eax, 4 ; advance 'here' 4 bytes
+
+    ; Store length of new word's machine code
+    ; dd (end_%1 - %1)  ; 32b length of word machine code
+    pop ebx ; get end of machine code addr pushed above
+    pop edx ; get start of machine code addr pushed by ':'
+    sub ebx, edx ; calc length of machine code
+    mov [eax], ebx
+    add eax, 4 ; advance 'here' 4 bytes
+
+    ; Store distance from start of tail to start of machine
+    ; code.
+    ; dd (tail_%1 - %1) ; 32b distance from tail to start
+    sub ecx, edx ; tail - start of mc
+    mov [eax], ecx
+    add eax, 4 ; advance 'here' 4 bytes
+
+    ; Store flags
+    ; dd %3             ; 32b flags for word
+    ; NOTE: Temporarily hard-coded value!
+    mov dword [eax], (IMMEDIATE | COMPILE)
+    add eax, 4 ; advance 'here' 4 bytes
+
+    ; Store name string
+    ; db %2, 0          ; xxb null-terminated name string
+    push name_buffer  ; source
+    push eax          ; destination
+    COPYSTR_CODE      ; copy name into tail
+
+    ; TEMP! Call strlen again so we know how much
+    ; string name we wrote to the tail.
+    push name_buffer
+    STRLEN_CODE
+    pop ebx ; get string len
+    add eax, ebx ; advance 'here' by that amt
+
+    ; Store here in 'here'
+    mov [here], eax
+
+    ; return us to immediate mode now that we're done
+    mov dword [mode], IMMEDIATE
+ENDWORD semicolon, ";", (COMPILE | RUNCOMP)
 
 ; ----------------------------------------------------------
 ; PROGRAM START!
@@ -288,7 +422,7 @@ _start:
 
     ; This will probably _really_ get set when we read
     ; more input. But for now, set to start of buffer:
-    mov dword [input_buffer_pos], input_buffer_start
+    mov dword [input_buffer_pos], input_buffer
 
     ; Initialize return stack pointer to point at the
     ; beginning of the return stack reserved memory:
@@ -306,7 +440,13 @@ get_next_token:
     je .token_not_found
     cmp dword [mode], IMMEDIATE
     je .exec_word
-    CALLWORD inline     ; inline it!!!
+    ; We're in compile mode...
+    CALLWORD get_flags
+    CALLWORD is_runcomp
+    pop eax    ; get result
+    cmp eax, 0 ; if NOT equal, word was RUNCOMP
+    jne .exec_word ; yup, RUNCOMP
+    CALLWORD inline ; nope, "compile" it.
     jmp get_next_token
 .exec_word:
     ; Run current word in immediate mode!
@@ -323,12 +463,31 @@ get_next_token:
     ; should cleanly exit in whatever we compiled into
     ; the data_segment!
 .token_not_found:
-    ; TODO: print which mode we were in when we were
-    ; looking! (IMMEDIATE or COMPILE)
-    push not_found_str1
+    ; Putting strings together this way is quite painful...
+    ; "Could not find word "foo" while looking in MODE."
+    push str_not_found1
     CALLWORD print
     push token_buffer
     CALLWORD print
-    push not_found_str2
+    push str_not_found2
+    CALLWORD print
+    cmp dword [mode], IMMEDIATE
+    je .immediate_not_found
+    push str_mode_compile ; "COMPILE"
+    jmp .print_mode
+.immediate_not_found:
+    push str_mode_immediate ; "IMMEDIATE"
+.print_mode:
+    CALLWORD print
+    push str_not_found3
     CALLWORD print
     CALLWORD exit
+
+; Interpreter strings - I got tired of jumping to the top of
+; the program to hunt these down and change them.
+section .data
+str_not_found1: db 'Could not find word "',0
+str_not_found2: db '" while looking in ',0
+str_not_found3: db ` mode.\n`,0
+str_mode_immediate: db 'IMMEDIATE',0
+str_mode_compile: db 'COMPILE',0

@@ -297,3 +297,252 @@ Meow.
     working so I can make the _real_ meow5 word as fortold
     by the prophets.
 
+    Many nights later: I got sick and had to skip some
+    evenings. Compound that with the fact that cascade of
+    changes needed to let semicolon (';') compile the tail
+    of a new word and I've got a bit of a challenge getting
+    these notes in order.
+
+    At the moment, I've done the following changes:
+
+    1. The tiny three-instruction 'return' code that gets
+       appended to the end of all word definitions (so they
+       can be called directly as functions) has been turned
+       into a macro so it can be included in the ENDWORD
+       macro and as a word of its own so it can be inlined
+       by semicolon.
+
+    2. The 'inline' word's machine code is now also in a
+       macro so it can be included elsewhere (such as
+       semicolon). So yeah, 'inline' gets inlined!
+
+    3. Same with 'get_token' which is now needed by colon
+       (':') to save the name of a new word definition:
+
+            : meow5 meow meow meow meow meow ;
+
+       Semicolon compiles the token "meow5" into the new
+       word's tail so 'find' can find it in the dictionary.
+
+    4. For now, I have 'copystr' including 'strlen' (I use
+       null-terminated strings), but the usage in tail
+       makes me think these should be separated to make
+       them more generalized. More about that in a moment.
+
+    5. 'print' is used in a number of places, so that's
+       been turned into a macro as well. Actually, it looks
+       like I already noted that would be happening above.
+       But I hadn't yet settled on ALL CAPS for the code
+       macros. Here's the entire 'print' definition right
+       now:
+
+        ; Prints a null-terminated string by address on stack.
+        %macro PRINT_CODE 0
+            STRLEN_CODE        ; (after: straddr, len)
+            mov ebx, STDOUT    ; write destination file
+            pop edx            ; strlen
+            pop ecx            ; start address
+            mov eax, SYS_WRITE ; syscall
+            int 0x80           ; interrupt to linux!
+        %endmacro
+        DEFWORD print ; (straddr) print ()
+            PRINT_CODE
+        ENDWORD print, "print", (IMMEDIATE | COMPILE)
+
+    6. 'semicolon' is coming along nicely, but I was having
+       trouble testing it until I realized I had completely
+       forgotten to implement my new word flag: RUNCOMP.
+
+       The RUNCOMP flag is my way of saying "this word runs
+       immediately, even in COMPILE mode."
+
+       It's exactly the same as Forth's "immediate" words,
+       but I think my naming makes the meaning a little more
+       explicit? At least, that's the intention.
+
+    7. I've gotten much more comfortable using the stack to
+       store local values rather than trying to juggle
+       registers or use global variables. My first real
+       stack workout has been in 'semicolon', where I have
+       ended up using it just a tiny amount, but I've
+       already started to have minor revelations about how
+       the stack helps me manage memory, but nothing I can
+       put into words very well just yet.
+
+    So given that update, my current TODOs to get
+    "completely 100% legit word compilation from a string of
+    input" working are in this order:
+
+      [ ] Create new word: 'get_flags' will put 32 bits of
+          flags from a word's tail on the stack.
+      [ ] Create new word: 'is_runcomp' will leave 0 on
+          the stack if RUNCOMP flag is NOT set in flags.
+      [ ] Get 'semicolon' just working for now, which
+          currently means having two duplicate calls to
+          'strlen', which is annoying, but if I change too
+          much more, I'm going to have an impossible time
+          debugging all of these changes at once!
+      [ ] AFTER semicolon works, pull 'strlen' out of
+          'copystr' and maaayyybeee out of 'print' too,
+          though I'm on the fence about that one.
+      [ ] And beyond that, I'm thinking 'copystr' may not
+          even need to exist, because it's a specialized
+          case of copying memory...and I've already got an
+          instance of that in 'inline' - so maybe the two of
+          them should share that functionality in something
+          like a 'copymem' word?
+
+    Okay, now I've written the two new words and am calling
+    them to check the word:
+
+        ; We're in compile mode...
+        CALLWORD get_flags
+        CALLWORD is_runcomp
+        pop eax    ; get result
+        cmp eax, 0 ; if NOT equal, word was RUNCOMP
+        jne .exec_word ; yup, RUNCOMP
+        CALLWORD inline ; nope, "compile" it.
+
+    But I've got something wrong, because obviously this
+    shouldn't be happening:
+
+$ mr
+Immediate Meow!
+Could not find word "meow5"
+
+    I could certainly figure this out with GDB, but that's
+    getting increasingly painful now that the interpreter is
+    becoming more complex.
+
+    So I think it's high time for more "print debugging" in
+    the interpreter itself.
+
+    First off, I've had a TODO to add the current mode to my
+    word not found error message. So I'll start with that:
+
+$ mr
+Immediate Meow!
+Could not find word "meow5" while looking in COMPILE mode.
+
+    Oh! I wasn't expecting that. We shouldn't be in COMPILE
+    mode after semicolon (;).
+
+Breakpoint 1, semicolon () at meow5.asm:331
+331	    mov eax, [here]
+332	    push eax ; push end of machine code to stack
+push () at meow5.asm:73
+73	    mov eax, [return_ptr] ; current return stack pos
+74	    sub dword [return_ptr], 4 ; "pop" return stack
+75	    jmp [eax]             ; go to return addr!
+
+    Huh? It's calling 'return' right at the beginning of
+    semicolon? What is...oh, jeez, I had RETURN_CODE of
+    just "return" - I wanted the label as the address to
+    inline, but I accidentally included the return function.
+    Okay, that was just a dumb mistake made by a sleepy
+    person.
+
+    Wrong:
+    
+        push RETURN_CODE ; push what to inline on stack
+
+    Fixed:
+        
+        push return ; push what to inline on stack
+
+    Moving on, now I have no doubt I'll be stepping through
+    semicolon for a while. Even though I worked it out on
+    paper, there are so many opportunities for mistakes.
+
+    Here we go...
+
+Program received signal SIGSEGV, Segmentation fault.
+semicolon () at meow5.asm:127
+127	    rep movsb       ; copy [esi]...[esi+ecx] into [edi]
+
+    That looks like 'inline' - so that'll be my use of the
+    INLINE_CODE macro in semicolon. Let's see...
+
+(gdb) break semicolon
+Breakpoint 1 at 0x8049397: file meow5.asm, line 331.
+Starting program: /home/dave/meow5/meow5 
+Immediate Meow!
+Breakpoint 1, semicolon () at meow5.asm:331
+331	    mov eax, [here]
+332	    push eax ; push end of machine code to stack
+semicolon () at meow5.asm:339
+339	    push return ; push what to inline on stack
+semicolon () at meow5.asm:121
+121	    pop esi ; param1: tail of word to inline
+semicolon () at meow5.asm:122
+122	    mov edi, [here]    ; destination
+
+    We're in INLINE_CODE now. Let's see what we're currently
+    pointing to:
+123	    mov eax, [esi + T_CODE_LEN]    ; get len of code
+(gdb) p $eax
+$1 = -668105976
+
+    Uh...that's definitely not the correct length for the
+    'return' word's machine code...
+
+    Oh, another bone-headed mistake. Perhaps you saw it
+    above when I tried to fix it and were screaming at me?
+    Sorry, I couldn't hear you.
+
+    Still wrong:
+        
+        push return ; push what to inline on stack
+
+    Fixed for real this time:
+
+        push tail_return ; push what to inline on stack
+
+    Yeah, I wasn't thinking straight. The label "return"
+    points to the beginning of the word's machine code. The
+    label "tail_return" points to the tail...which is what
+    the 'inline' word is expecting!
+
+    Alright, with that fixed:
+
+$ mr
+Immediate Meow!
+Could not find word "meow5" while looking in IMMEDIATE mode.
+
+    Yeah, still broken, but in a much better way. I can see
+    that semicolon has at least returned us to IMMEDIATE
+    mode.
+
+    Probably just a simple bug in semicolon compiling the
+    new word's tail...
+
+    ...yup! Just an ebx where I should have had an eax. The
+    last word address wasn't being updated for the
+    dictionary linked list.
+
+    Crossing fingers...
+
+$ mr
+Immediate Meow!
+Meow.
+Meow.
+Meow.
+
+    Gasp! It works! In some ways, this is 100% of the
+    original project goal. Oh, wait, almost. That's just 3
+    meows. Ha ha. One second...
+
+        input_buffer:
+            db ': meow5 meow meow meow meow meow ; '
+            db 'meow5 '
+            db 'newline '
+            db 'exit',0
+
+    And drum-roll please...
+
+$ mr
+Meow. Meow. Meow. Meow. Meow. 
+
+    Yahoo!!!
+
+
