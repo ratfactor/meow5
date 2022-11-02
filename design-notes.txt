@@ -118,6 +118,17 @@ I bet not many languages have *that* feature! (I don't
 know of any).
 
 ===========================================================
+Challenge: Programs are built up by concatenating words
+togeher, so by definition, everything a top-level word needs
+is guaranteed to be contained in that word (if we wanted to
+write it out as a stand-alone executable.) But how do we
+reference data like strings? And variables/constants?
+
+How do other compiling Forths handle that, for that matter?
+Do they write out every word in the dictionary? And is the
+outer interpreter always included???
+
+===========================================================
 Register Usage
 
 Typical usage notes (JF = JONESFORTH)

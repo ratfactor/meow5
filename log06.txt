@@ -21,3 +21,114 @@
         [ ] Pretty-print meta info about word!
         [ ] Loop through dictionary, list all names
         [ ] Loop through dictionary, pretty-print all
+
+    Next night: De-evolving the return mechanism for
+    immediate word calling was easy, so that one's done.
+
+    Now for the fun ones.
+
+    I'm more of a strings programmer than a numbers
+    programmer. So the ultra-primitive state of my string
+    printing is a bit of a bummer. Before I start storing a
+    billion little pieces of strings in the DATA segment,
+    I'd like to consider adding some convenience words for
+    string handling.
+
+    It would be nice to have, at the very least, string
+    literals in the language.
+
+        [ ] Add string literals.
+        [ ] Re-define 'meow' using a string literal.
+
+    I like the idea of just writing "anonymous" strings to
+    be printed into the dictionary space where all the words
+    are. And I think my choice to null-terminate my strings
+    will pay off here (I hope).
+
+    Adding immediate mode strings that are just references
+    to the input buffer turned out to be super easy:
+
+        ; IMMEDIATE version of " scans forward until it finds end
+        ; quote '"' character in input_buffer and replaces it with
+        ; the null terminator. Leaves start addr of string on the
+        ; stack. Use it right away!
+        DEFWORD quote
+            mov ebp, [input_buffer_pos]
+            inc ebp ; skip initial space
+            push ebp ; we leave this start addr on the stack
+        .look_for_endquote:
+            inc ebp
+            cmp byte [ebp], '"' ; endquote?
+            jne .look_for_endquote ; nope, loop
+            mov byte [ebp], 0   ; replace endcquote with null
+            inc ebp ; move past the new null terminator
+            mov [input_buffer_pos], ebp ; save position
+        ENDWORD quote, '"', (IMMEDIATE)
+
+    And now I can do my first legit Hello World:
+
+        db ' " Hello world!" print newline exit '
+
+    Which works just fine:
+
+$ mr
+Hello world!
+
+    But since it just saves a reference to the input buffer,
+    real world usage won't really be safe. Unless the input
+    buffer is limitless, I hae no idea if the string address
+    will still be valid by the time I try to use it.
+
+    For that reason, I'm gonna have to copy any strings from
+    the input buffer to somewhere.
+
+    I could either have a special-purpose buffer just for
+    storing strings, or I could write to the stack, or I
+    could write to the compile area.
+
+    The other thing that's really messing with my mind is
+    trying to think ahead (probably way too much) towards
+    how I might handle this stuff in a stand-alone
+    executable program produced by Meow5...which, now that
+    I've written it out, is DEFINITELY thinking ahead too
+    far ahead.
+
+    Next night: Moving on, I've also decided that I should
+    extract the part of 'get_token' that eats any initial
+    space characters (or other whitespace) out into its own
+    word.
+
+        [ ] New word: 'eat_spaces'
+
+    That will allow me to use it to "peek ahead" if I
+    want to in the outer interpreter and possibly switch
+    into a "string mode" (which is something I'm
+    contemplating). But all these paragraphs are me getting
+    way ahead of myself. Back to the assembly!
+
+    Okay, done. I had just one mistake, but GDB was a clumsy
+    way to debug it. So I added some more print debugging,
+    leading to this extremely verbose output once it worked:
+
+$ mr
+Running ":"
+Inlining "meow"
+Inlining "meow"
+Inlining "meow"
+Inlining "meow"
+Inlining "meow"
+Running ";"
+Running "meow5"
+Meow. Meow. Meow. Meow. Meow. Running "newline"
+
+Running "exit"
+
+    I'll comment those out for now, but I'm betting I'll be
+    using them again soon.
+
+$ mr
+Meow. Meow. Meow. Meow. Meow.
+
+    There we are, good as new.
+
+    Onward to a string implementation...

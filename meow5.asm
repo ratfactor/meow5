@@ -26,9 +26,8 @@ token_buffer: resb 32   ; For get_token
 name_buffer:  resb 32   ; For colon (copy of token)
 input_buffer_pos: resb 4 ; Save position of read tokens
 
-; Return stack for immediate mode execution only
-return_stack: resb 512  ; Not expecting deep calls... 
-return_ptr:   resb 4    ; To "push/pop" return stack
+; Return address for immediate mode execution only
+return_addr:   resb 4    ; To "push/pop" return stack
 
 ; ----------------------------------------------------------
 ; DATA - defined values
@@ -53,13 +52,10 @@ input_buffer:
 %macro CALLWORD 1 ; takes label/addr of word to call
     ; For faking call/ret to word as if 'twas a function
     ; within assembly while creating the meow5 executable.
-        mov eax, [return_ptr] ; current return stack pos
-        add eax, 4            ; advance it (grow fwd)
-        mov [return_ptr], eax ; save pos
-        mov dword [eax], %%return_to ; CALLWORD
+    ; Note that '%%return_to' is a macro-local label.
+        mov dword [return_addr], %%return_to ; CALLWORD
         jmp %1                               ; CALLWORD
     %%return_to:                             ; CALLWORD
-    ; Note that '%%return_to' is a macro-local label.
 %endmacro
 
 %macro DEFWORD 1 ; takes name of word to make
@@ -68,9 +64,8 @@ input_buffer:
 %endmacro
 
 %macro RETURN_CODE 0
-    mov eax, [return_ptr] ; current return stack pos
-    sub dword [return_ptr], 4 ; "pop" return stack
-    jmp [eax]             ; go to return addr!
+    mov eax, [return_addr] ; RETURN
+    jmp eax                ; RETURN
 %endmacro
 
 %macro ENDWORD 3
@@ -193,10 +188,35 @@ DEFWORD find
 .done:
 ENDWORD find, "find", (IMMEDIATE)
 
+; Skips any characters space and below from input buffer.
+%macro EAT_SPACES_CODE 0
+    mov ebx, [input_buffer_pos] ; set input read addr
+    mov ecx, 0                  ; position index
+.check:
+    mov al, [ebx + ecx] ; input addr + position index
+    cmp al, 0           ; end of input?
+    je .done            ; yes, return
+    cmp al, 0x20        ; anything space and below?
+    jg .done            ; nope, we're done
+    inc ecx             ; 'eat' space by advancing input
+    jmp .check          ; loop
+.done:
+    cmp ecx, 0          ; did we eat anything?
+    je .done2           ; nope, just return
+    add ebx, ecx        ; new pointer
+    mov [input_buffer_pos], ebx ; save it
+.done2:
+%endmacro
+DEFWORD eat_spaces
+    EAT_SPACES_CODE
+ENDWORD eat_spaces, "eat_spaces", (IMMEDIATE | COMPILE)
+
 %macro GET_TOKEN_CODE 0
     ; Returns (on stack) either:
     ;  * Address of null-termed token string or
     ;  * 0 if we're out of tokens
+    ; MUST be proceeded by eat_spaces or you may get false
+    ; end of input detection.
     ;
     ;  * * *
     ; Input 'faked' for now, but fairly realistic. This
@@ -210,21 +230,12 @@ ENDWORD find, "find", (IMMEDIATE)
     mov ecx, 0                  ; position index
 .get_char:
     mov al, [ebx + ecx] ; input addr + position index
-    cmp al, 0           ; end of input?
-    je .end_of_input    ; yes
-    cmp al, ' '         ; token separator? (space)
-    jne .add_char       ; nope! get char
-    cmp ecx, 0          ; yup! do we have a token yet?
-    je .eat_space       ; no
-    jmp .return_token   ; yes, return it
-.eat_space:
-    inc ebx             ; 'eat' space by advancing input
-    jmp .get_char
-.add_char:
+    cmp al, 0x20        ; end of token (spece or lower?)
+    jle .end_of_token   ; yes
     mov [edx + ecx], al ; write character
     inc ecx             ; next character
     jmp .get_char
-.end_of_input:
+.end_of_token:
     ; okay, now did we hit the end while gathering
     ; a token, or did we come up empty-handed?
     cmp ecx, 0         ; did we have anything?
@@ -315,6 +326,7 @@ ENDWORD meow, "meow", (COMPILE)
 DEFWORD colon
     mov dword [mode], COMPILE
     ; get name from next token and store it...
+    EAT_SPACES_CODE
     GET_TOKEN_CODE
     push token_buffer ; source
     push name_buffer  ; dest
@@ -400,6 +412,24 @@ DEFWORD semicolon
     mov dword [mode], IMMEDIATE
 ENDWORD semicolon, ";", (COMPILE | RUNCOMP)
 
+; IMMEDIATE version of " scans forward until it finds end
+; quote '"' character in input_buffer and replaces it with
+; the null terminator. Leaves start addr of string on the
+; stack. Use it right away!
+DEFWORD quote
+    mov ebp, [input_buffer_pos]
+    inc ebp ; skip initial space
+    push ebp ; we leave this start addr on the stack
+.look_for_endquote:
+    inc ebp
+    cmp byte [ebp], '"' ; endquote?
+    jne .look_for_endquote ; nope, loop
+    mov byte [ebp], 0   ; replace endcquote with null terminator
+    inc ebp ; move past the new null terminator
+    mov [input_buffer_pos], ebp ; save position
+ENDWORD quote, '"', (IMMEDIATE)
+
+
 ; ----------------------------------------------------------
 ; PROGRAM START!
 ; ----------------------------------------------------------
@@ -424,17 +454,14 @@ _start:
     ; more input. But for now, set to start of buffer:
     mov dword [input_buffer_pos], input_buffer
 
-    ; Initialize return stack pointer to point at the
-    ; beginning of the return stack reserved memory:
-    mov dword [return_ptr], return_stack
-
 ; ----------------------------------------------------------
 ; Interpreter!
 ; ----------------------------------------------------------
 get_next_token:
+    CALLWORD eat_spaces
     CALLWORD get_token
     cmp dword [esp], 0  ; check return without popping
-    je .run_it           ; all out of tokens!
+    je .end_of_input    ; all out of tokens!
     CALLWORD find       ; find token, returns tail addr
     cmp dword [esp], 0  ; check return without popping
     je .token_not_found
@@ -446,9 +473,23 @@ get_next_token:
     pop eax    ; get result
     cmp eax, 0 ; if NOT equal, word was RUNCOMP
     jne .exec_word ; yup, RUNCOMP
+        ; push str_inlining ; 'Inlining "<word>"'
+        ; CALLWORD print
+        ; push token_buffer
+        ; CALLWORD print
+        ; push str_quote
+        ; CALLWORD print
+        ; CALLWORD newline
     CALLWORD inline ; nope, "compile" it.
     jmp get_next_token
 .exec_word:
+        ; push str_running ; 'Running "<word>"'
+        ; CALLWORD print
+        ; push token_buffer
+        ; CALLWORD print
+        ; push str_quote
+        ; CALLWORD print
+        ; CALLWORD newline
     ; Run current word in immediate mode!
     ; We currently have the tail of a found word.
     pop ebx ; addr of word tail left on stack by 'find'
@@ -456,15 +497,14 @@ get_next_token:
     sub ebx, eax ; set to start of word's machine code
     CALLWORD ebx ; call word with that addr (via reg)
     jmp get_next_token
-.run_it: ; By "it" I mean the code we've compiled/inlined.
-    push 0           ; push exit code to stack for exit
-    jmp data_segment ; jump to the "compiled" program
-    ; NOT expecting a return - for now, this test
-    ; should cleanly exit in whatever we compiled into
-    ; the data_segment!
+.end_of_input:
+    push str_end_of_input
+    CALLWORD print
+    CALLWORD newline
+    CALLWORD exit
 .token_not_found:
     ; Putting strings together this way is quite painful...
-    ; "Could not find word "foo" while looking in MODE."
+    ; "Could not find word "foo" while looking in <mode> mode."
     push str_not_found1
     CALLWORD print
     push token_buffer
@@ -491,3 +531,7 @@ str_not_found2: db '" while looking in ',0
 str_not_found3: db ` mode.\n`,0
 str_mode_immediate: db 'IMMEDIATE',0
 str_mode_compile: db 'COMPILE',0
+str_inlining: db 'Inlining "',0
+str_running: db 'Running "',0
+str_quote: db '"',0
+str_end_of_input: db 'Ran out of input!',0
