@@ -20,10 +20,13 @@
 section .bss
 mode: resb 4            ; IMMEDATE or COMPILE
 last: resb 4            ; Pointer to last defined word tail
-data_segment: resb 1024 ; We inline ("compile") here!
-here: resb 4            ; Current data_segment pointer
+here: resb 4            ; Will point to compile_area
+free: resb 4            ; Will point to data_area
 token_buffer: resb 32   ; For get_token
 name_buffer:  resb 32   ; For colon (copy of token)
+compile_area: resb 4096 ; We inline ("compile") here!
+data_area: resb 1024    ; All variables go here!
+
 input_buffer_pos: resb 4 ; Save position of read tokens
 
 ; Return address for immediate mode execution only
@@ -33,13 +36,12 @@ return_addr:   resb 4    ; To "push/pop" return stack
 ; DATA - defined values
 ; ----------------------------------------------------------
 section .data
-meow_str:
-    db 'Meow. ',0
 
 ; I'm pretending to get this string from an input source:
 ; NOTE: This buffer will move to the BSS section when I
 ; start reading real input.
 input_buffer:
+    db ': meow "Meow." print ; '
     db ': meow5 meow meow meow meow meow ; '
     db 'meow5 '
     db 'newline '
@@ -318,11 +320,6 @@ DEFWORD copystr ; (sourceaddr, destaddr) copystr ()
     COPYSTR_CODE
 ENDWORD copystr, "copystr", (IMMEDIATE | COMPILE)
 
-DEFWORD meow
-    push meow_str
-    PRINT_CODE
-ENDWORD meow, "meow", (COMPILE)
-
 DEFWORD colon
     mov dword [mode], COMPILE
     ; get name from next token and store it...
@@ -412,22 +409,47 @@ DEFWORD semicolon
     mov dword [mode], IMMEDIATE
 ENDWORD semicolon, ";", (COMPILE | RUNCOMP)
 
-; IMMEDIATE version of " scans forward until it finds end
-; quote '"' character in input_buffer and replaces it with
-; the null terminator. Leaves start addr of string on the
-; stack. Use it right away!
+; Checks if the next character is a quote. If not, do
+; nothing. If it is, copy the string up to the endquote into
+; the data_area and then return its address. Update free.
 DEFWORD quote
     mov ebp, [input_buffer_pos]
-    inc ebp ; skip initial space
-    push ebp ; we leave this start addr on the stack
-.look_for_endquote:
-    inc ebp
-    cmp byte [ebp], '"' ; endquote?
-    jne .look_for_endquote ; nope, loop
-    mov byte [ebp], 0   ; replace endcquote with null terminator
-    inc ebp ; move past the new null terminator
-    mov [input_buffer_pos], ebp ; save position
-ENDWORD quote, '"', (IMMEDIATE)
+    mov al, [ebp]
+    cmp al, '"'         ; next char a quote?
+    jne .quote_done     ; nope, do nothing
+    inc ebp             ; yup, now move past it
+    mov ecx, 0          ; initialize input pos
+    mov ebx, [free]     ; get string's new address
+    ; If we're in immediate mode, we will push this new
+    ; string's address on the stack immediately. But if
+    ; we're in compile mode, we need to inline code to push
+    ; the string's address at run time!
+    cmp dword [mode], IMMEDIATE
+    je .immediately
+    mov edx, [here]          ; compile mode, compile here
+    mov byte [edx], 0x68     ; i386 opcode for PUSH imm32
+    mov dword [edx + 1], ebx ; address of string
+    add edx, 5               ; update here
+    mov [here], edx          ; save it
+    jmp .copy_char
+.immediately:
+    push ebx            ; just put addr on stack now
+.copy_char:
+    mov al, [ebp + ecx]
+    cmp al, '"'         ; look for endquote
+    je .end_quote
+    mov [ebx + ecx], al ; copy character
+    inc ecx             ; next char
+    jmp .copy_char      ; loop
+.end_quote:
+    lea eax, [ebp + ecx + 1]    ; get next input position
+    mov [input_buffer_pos], eax ; save it
+    mov [ebx + ecx], byte 0     ; terminate str null
+    lea eax, [ebx + ecx + 1]    ; calc next free space
+    mov [free], eax             ; safe it
+    EAT_SPACES_CODE             ; advance to next token
+.quote_done:
+ENDWORD quote, 'quote', (IMMEDIATE | COMPILE)
 
 
 ; ----------------------------------------------------------
@@ -443,7 +465,11 @@ _start:
 
 	; Here points to the current spot where we're going to
 	; inline ("compile") the next word.
-    mov dword [here], data_segment
+    mov dword [here], compile_area
+
+    ; Free points to the next free space in the data area
+    ; where all variables and non-stack data goes.
+    mov dword [free], data_area
 
     ; Store last tail for dictionary searches (note that
 	; find just happens to be the last word defined in the
@@ -459,6 +485,7 @@ _start:
 ; ----------------------------------------------------------
 get_next_token:
     CALLWORD eat_spaces
+    CALLWORD quote      ; handle any string literals
     CALLWORD get_token
     cmp dword [esp], 0  ; check return without popping
     je .end_of_input    ; all out of tokens!
@@ -473,23 +500,23 @@ get_next_token:
     pop eax    ; get result
     cmp eax, 0 ; if NOT equal, word was RUNCOMP
     jne .exec_word ; yup, RUNCOMP
-        ; push str_inlining ; 'Inlining "<word>"'
-        ; CALLWORD print
-        ; push token_buffer
-        ; CALLWORD print
-        ; push str_quote
-        ; CALLWORD print
-        ; CALLWORD newline
+         push str_inlining ; 'Inlining "<word>"'
+         CALLWORD print
+         push token_buffer
+         CALLWORD print
+         push str_quote
+         CALLWORD print
+         CALLWORD newline
     CALLWORD inline ; nope, "compile" it.
     jmp get_next_token
 .exec_word:
-        ; push str_running ; 'Running "<word>"'
-        ; CALLWORD print
-        ; push token_buffer
-        ; CALLWORD print
-        ; push str_quote
-        ; CALLWORD print
-        ; CALLWORD newline
+         push str_running ; 'Running "<word>"'
+         CALLWORD print
+         push token_buffer
+         CALLWORD print
+         push str_quote
+         CALLWORD print
+         CALLWORD newline
     ; Run current word in immediate mode!
     ; We currently have the tail of a found word.
     pop ebx ; addr of word tail left on stack by 'find'

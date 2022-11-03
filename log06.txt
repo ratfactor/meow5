@@ -131,4 +131,164 @@ Meow. Meow. Meow. Meow. Meow.
 
     There we are, good as new.
 
-    Onward to a string implementation...
+    Next night: So while it's true that I could save strings
+    (and other data) in a variety of clever places, my
+    understanding is that modern CPUs do much better with
+    separate instruction and data memory.
+
+    So I'm gonna say for now that there will be three types
+    of memory in Meow5:
+
+        1. The stack for all register-sized parameters
+        2. The "compile area" where all inlined words go
+        3. The "data area" where all variables and other
+           data (such as "anonymous" strings) will go.
+
+    In fact, I'm gonna name #2 and #3 exactly like that:
+
+        section .bss
+
+        ...
+
+        compile_area: resb 1024
+        data_area:    resb 1024
+
+        here: resb 4
+        free: resb 4
+
+    Where 'here' points to the next free spot in the
+    compile_area (the 'here' name comes from Forth).
+
+    And 'free' points to the next free spot in the
+    data_area.
+
+    And I'm gonna go against the Forth grain and add a
+    special handler for quote syntax. I'll go ahead and peek
+    at the next character of input. If it's a quote, I'll
+    handle the rest as a string. Otherwise, keep processing
+    tokens as usual.
+
+    The word is called 'quote' instead of '"' and I'm going
+    to call it explicitly in my outer interpreter.
+
+    The point of this is to allow "normal looking" strings
+    like this:
+
+        "Hello world"
+
+    Rather than requring a token delimeter after the '"'
+    word as in traditional Forth:
+
+        " Hello world"
+
+    Between that and copying the string from the input
+    buffer to a new variable space, the change in my
+    immediate mode hello world is just the missing space,
+    but it's a world of difference:
+
+        db ' "Hello World!" print newline exit '
+
+    Does it work?
+
+$ mr
+Hello World!
+
+    Compile mode is exactly the same (I'll put the string in
+    the data_area at compile time), but instead of pushing
+    the address of the string to the stack right at that
+    momment, I need to inline (or "compile") the machine
+    code to push the address *when the word being compiled
+    runs*!
+
+    To do that, I need to actually "assemble" the i386
+    opcode to push the 32-bit address onto the stack.
+
+    So that'll be the "PUSH imm32" instruction in Intel
+    documentation parlance.
+
+    Handy reference: https://www.felixcloutier.com/x86/push
+
+        6A <ib> PUSH imm8
+        66 <iw> PUSH imm16
+        68 <id> PUSH imm32
+
+    And I'm gonna test that out with NASM and GDB:
+
+        push byte  0x99
+        push word  0x8888
+        push dword 0x77777777
+
+    disassembles as:
+
+0x0804942d <+0>:	6a 99	push   $0xffffff99
+0x0804942f <+2>:	66 68 88 88	pushw  $0x8888
+0x08049433 <+6>:	68 77 77 77 77	push   $0x77777777
+
+    Bingo! So I'm going to want opcode 0x68 followed by
+    the address value.
+        
+        mov edx, [here]
+        mov byte [edx], 0x68     ; i386 opcode for PUSH imm32
+        mov dword [edx + 1], ebx ; address of string
+        add edx, 5               ; update here
+        mov [here], edx          ; save it
+
+    Well, here goes nothing...
+
+        db ': meow "Meow." print ; meow newline exit '
+
+    There's no way that's gonna work...
+
+$ mr
+Running ":"
+Inlining "print"
+Running ";"
+Running "meow"
+Meow.Running "newline"
+
+Running "exit"
+
+    What?! It worked!
+
+    As you can see, I had also turned my debugging
+    statements back on 'cause I was expecting trouble. They
+    help assure me that this is, in fact compiling a word
+    called 'meow' that prints a string stored in memory at
+    compile time. I'll turn the debugging off again.
+
+    And while I'm at it, I'll remove the old assembly test
+    'meow' word and define it like this in order to create
+    the 'meow5' word.
+
+
+        input_buffer:
+            db ': meow "Meow." print ; '
+            db ': meow5 meow meow meow meow meow ; '
+            db 'meow5 '
+            db 'newline '
+            db 'exit',0
+
+./build.sh: line 33:  2650 Segmentation fault      ./$F
+
+    Aw man.
+
+    Okay, were are we crashing?
+
+(gdb) r
+Starting program: /home/dave/meow5/meow5
+Running ":"
+Inlining "print"
+Running ";"
+Running ":"
+Inlining "meow"
+Inlining "meow"
+Inlining "meow"
+
+Program received signal SIGSEGV, Segmentation fault.
+find.test_word () at meow5.asm:165
+165	    and eax, [edx + T_FLAGS] ; see if mode bit is set...
+
+    Hmmm. Weird that it dies while trying to find the fourth
+    'meow' to inline. I bumped up the compile area memory to
+    4kb and it wasn't that. So I guess I'll be stepping
+    through this.
