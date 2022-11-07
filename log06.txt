@@ -292,3 +292,309 @@ find.test_word () at meow5.asm:165
     'meow' to inline. I bumped up the compile area memory to
     4kb and it wasn't that. So I guess I'll be stepping
     through this.
+
+    Three nights later (I think): I did step through it
+    quite a bit with GDB, but this thing is getting to the
+    point where it feels like there's a pretty big mismatch
+    between GDB's strengths (stepping through C) and this
+    crazy machine code concatenation I'm doing.
+
+    I've always prefered "print debugging" anyway. So I've
+    made what I think is a neat little DEBUG print macro. It
+    takes a string and an expression to print as a 32-bit hex
+    number. The expression is anything that would be valid
+    as the source for a MOV to a register: mov eax, <expr>.
+
+    Examples:
+    
+        DEBUG "Value in eax: ", eax
+        DEBUG "My memory: ", [mem_label]
+        DEBUG "32 bits of glory: ", 0xDEADBEEF
+
+    Since the segfault is happening after a fourth iteration
+    of inline, I feel almost certain that this is a memory
+    clobbering problem. But all my data areas seem more than
+    big enough, so there must be a bug.
+
+    I've peppered 'inline' and 'find' (where the actual
+    crash takes place) with DEBUG statements. Here's a
+    sampling:
+
+Start [here]: 0804a280
+Start [last]: 08049ad8
+find [last]: 08049ad8
+find edx: 08049ad8
+find [edx]: 08049a3b
+find [edx+T_FLAGS]: 00000003
+...
+Running ":"
+...
+Inlining "print"
+...
+...
+Running ";"
+semicolon end of machine code [here]: 0804a2a5
+  inline to [here]: 0804a2a5
+  inline len: 00000007
+  inline from: 0804961a
+  inline done, [here]: 0804a2ac
+semicolon tail [here]: 0804a2ac
+semicolon linking to [last]: 08049ad8
+semicolon done with [last]: 0804a2ac
+                    [here]: 0804a264
+find [last]: 0804a2ac
+...
+Running ":"
+...
+Inlining "meow"
+  inline to [here]: 0804a264
+  inline len: 00000025
+  inline from: 0804a280
+  inline done, [here]: 0804a289
+...
+Inlining "meow"
+  ...
+  inline done, [here]: 0804a2ae
+Inlining "meow"
+  ...
+  inline done, [here]: 0804a2d3
+find [last]: 0804a2ac
+find edx: 0804a2ac
+find [edx]: 595a5a80
+find [edx+T_FLAGS]: 0004b859
+find [last]: 0804a2ac
+find edx: 595a5a80
+
+    Even viewing exactly what I want to see, all of these
+    addresses are still enough to make me go cross-eyed.
+
+    So immediately after compiling a new word, I should have
+    this:
+
+        (word's machine code)
+        tail:
+            link: 0x0804____     <-- [last] points here
+            (offsets and flags)
+        end of tail              <-- [here] points here
+
+    The [last] address should point to the tail of the last
+    compiled word and [here] should point to the next
+    available free space in the compile_area.
+
+    Time to examine the output.
+
+    When Meow5 beings, [last] is pointing to the last word
+    created in assembly and [here] is pointing to the very
+    beginning of the compile_area:
+
+Start [here]: 0804a280
+Start [last]: 08049ad8
+
+    After a run-time word is compiled (such as 'meow'),
+    [here] should always be a little larger than [last].
+
+Running ";"
+semicolon end of machine code [here]: 0804a2a5
+  inline to [here]: 0804a2a5
+  inline len: 00000007
+  inline from: 0804961a
+  inline done, [here]: 0804a2ac
+semicolon tail [here]: 0804a2ac
+semicolon linking to [last]: 08049ad8
+semicolon done with [last]: 0804a2ac
+                    [here]: 0804a264
+
+    Which is indeed the case - [here] is a tail's worth of
+    bytes after [last]. So far so good.
+
+    Then we crash while finding and inlining the 'meow'
+    machine code into a new 'meow5' word. Here's the first:
+
+Inlining "meow"
+  inline to [here]: 0804a264
+  inline len: 00000025
+  inline from: 0804a280
+  inline done, [here]: 0804a289
+
+    To double-check, I put in even more DEBUG statements in
+    'inline':
+
+Inlining "meow"
+    word tail: 0804b30c
+          len: 00000025
+  code offset: 0000002c
+       source: 0804b2e0
+  dest [here]: 0804b30e
+  dest    edi: 0804b30e
+   end    edi: 0804b333
+   end [here]: 0804b333
+
+    No, that all seems fine. It doesn't look like 'inline'
+    is at fault here. But _something_ is making the linked
+    list incorrect in the tail:
+
+find [last]: 0804b30c
+find edx: 0804b30c
+find [edx]: 595a5a80  <--- not a valid address
+
+    Sure, semicolon could have a bug...but that should be
+    causing the problem immediately, not between inlining
+    'meow' the third and fourth times.
+
+    Okay, acutally, I think GDB can help me here. I need to
+    know when this value in memory is getting clobbered.
+    Here's the syntax for watching a specific address. Have
+    to cast it - "int" is 32 bits for 32-bit elf and '*'
+    tells GDB that our value is a pointer. It's all very
+    'C'.
+
+(gdb) watch *(int)0x0804b30c
+Hardware watchpoint 1: *(int)0x0804b30c
+
+    And let's see what happens:
+
+...
+semicolon linking to [last]: 08049dc8
+Hardware watchpoint 1: *(int)0x0804b30c
+
+Old value = 0
+New value = 134520264
+@124.continue () at meow5.asm:454
+454	    mov [last], eax ; and store this tail as new 'last'
+(gdb) x/x *(int)0x0804b30c
+0x8049dc8 <tail_quote>:	0x08049d2b
+
+    Okay, that's a good address. So semicolon is doing the
+    right thing so far. Let's continue...
+
+...
+Inlining "meow"
+    word tail: 0804b30c
+          len: 00000025
+  code offset: 0000002c
+       source: 0804b2e0
+  dest [here]: 0804b2e9
+  dest    edi: 0804b2e9
+
+Hardware watchpoint 1: *(int)0x0804b30c
+
+Old value = 134520264
+New value = 134520192
+@36.continue () at meow5.asm:247
+247	    rep movsb       ; copy [esi]...[esi+ecx] into [edi]
+
+    Bingo! Well, then it *is* inline then. Yeah, clearly it
+    is. Ah, I see, but that's the first 'meow' inline. Which
+    kinda explains why I missed it.
+
+    So it's gotta be with a [here] that wasn't updated
+    correctly at some point.
+
+    Wait, has it been staring me in the face this whole
+    time?
+
+semicolon done with [last]: 0804b30c
+                    [here]: 0804b2c4
+
+    Ah geez. Yeah, [here] should certainly be *after*
+    [last]:
+
+                    [last]: 0804b30c <-- 30c (after)
+                    [here]: 0804b2c4 <-- 2c4 (before)
+
+    Dangit! Okay, so some more DEBUGs:
+
+tail eax: 0804b35c
+tail eax: 0804b360
+tail eax: 0804b364
+tail eax: 0804b368
+tail eax: 0804b30c  <-- yup! lost some ground here :-(
+tail eax: 0804b310
+
+    Got it! So it was my descision to go against Chuck
+    Moore's advice to always have words consume their
+    parameters from the stack so you don't have to remember
+    which words do and which words don't:
+
+        %macro STRLEN_CODE 0
+            mov eax, [esp] ; get string addr (without popping!)
+            ...
+
+    Sure enough, I forgot to pop to throw away this one
+    unique case where I really do just need the string
+    length:
+
+        ; Call strlen again so we know how much string name we
+        ; wrote to the tail:
+        push name_buffer
+        STRLEN_CODE
+        pop ebx ; get string len pushed by STRLEN_CODE
+        pop eax ; get saved 'here' position
+
+    That second pop was getting the name_buffer address I'd
+    pushed before STRLEN_CODE.
+
+    And now the novice is enlightened.
+
+    I'll fix that behavior right now and always heed that
+    particular bit of advice from here on out!
+
+    Okay, then it wouldn't find 'meow' after the *second*
+    try:
+
+Finding...0804b2fc
+meow
+find [last]: 0804b369
+find edx: 0804b369
+find [edx]: 0804a062
+   flags okay: 00000001
+   finding: 776f656d
+   finding: 00776f65
+   finding: 0000776f
+   finding: 00000077
+   finding: 00000000
+
+    It turns out I had one more problem with my strlen:
+
+        add eax, ebx ; advance 'here' by that amt
+        inc eax      ; plus one for the null
+
+    Had to add that last inc because strlen doesn't count
+    the null terminator as a character. So why did it find
+    'meow' the first time? Because I hadn't yet written
+    anything to the compile area, and the "blank" memory
+    acted as a terminator, but once I started to inline a
+    copy of 'meow' right after 'meow's tail as the
+    definition of 'meow5', that null was no longer there!
+
+    Now I'm gonna remove about two dozen DEBUG statements...
+
+    And will this work?
+
+        input_buffer:
+            db ': meow "Meow." print ; '
+            db ': meow5 meow meow meow meow meow ; '
+            db 'meow5 '
+            db 'newline '
+            db 'exit',0
+
+    Crossing fingers:
+
+$ mr
+Meow.Meow.Meow.Meow.Meow.
+
+    At last!
+
+    Guess the pretty-printing the dictionary got super
+    delayed, but this was vital stuff. I'll put those todos
+    in a new log in just a bit. But leaving this much
+    simpler todo for tomorrow night:
+
+        [ ] Factor out a PRINTSTR macro from DEBUG, then use
+            it *from* DEBUG and also anywhere else I'm
+            currently hard-coding strings in the data
+            section and printing them in the interpreter. Go
+            ahead and push/pop the 4 registers in that one
+            too.  Performance is totally not a concern with
+            these convenience macros in the interpreter.
+

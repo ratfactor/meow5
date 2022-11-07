@@ -51,6 +51,76 @@ input_buffer:
 ; MACROS!
 ; ----------------------------------------------------------
 
+; DEBUG print
+;   Examples:
+;     DEBUG "Value in eax: ", eax
+;     DEBUG "My memory: ", [mem_label]
+;     DEBUG "32 bits of glory: ", 0xDEADBEEF
+%macro DEBUG 2
+    ; First param is the string to print - put it in data
+    ; section with macro-local label %%str.  No need for
+    ; null termination.
+    %strlen mystr_len %1 ; and get length for later
+    section .data
+        %%mystr: db %1
+    ; now the executable part
+    section .text
+        ; First, make this safe to plop absolutely anywhere
+        ; by pushing the 4 registers used.
+        push eax ;A
+        push ebx ;B
+        push ecx ;C
+        push edx ;D
+        ; Second param is the source expression for this
+        ; MOV instruction - we'll print this value as a
+        ; 32bit (4 byte, dword, 8 digit) hex num.
+        ; We must perform the MOV now before the register
+        ; values are overwritten by printing the string.
+        mov eax, %2
+        push eax ; save value to print
+        ; Print the string
+        mov ebx, STDOUT
+        mov edx, mystr_len
+        mov ecx, %%mystr
+        mov eax, SYS_WRITE
+        int 0x80
+        ; Now print the value. We'll use the stack as a
+        ; scratch space to construct the ASCII string of the
+        ; hex value. Only 9 bytes are needed (8 digits +
+        ; newline), but due to a tricky "fencepost" issue,
+        ; I've elected to leave room for 10 bytes and
+        ; "waste" the first one.
+        pop eax ; get it back off the stack
+        lea ebx, [esp - 10]  ; make room for string
+        mov    ecx, 8 ; counter - 8 characters
+        %%digit_loop:
+            mov edx, eax
+            and edx, 0x0f   ; just keep lowest 4 bits
+            cmp edx, 9      ; bigger than 9?
+            jg  %%af        ; yes, print 'a'-'f'
+            add edx, '0'    ; no, turn it into ascii number
+            jmp %%continue
+        %%af:
+            add edx, 'a'-10 ; because 10 is 'a'...
+        %%continue:
+            mov byte [ebx + ecx], dl ; store character
+            ror eax, 4               ; rotate 4 bits
+            dec ecx                  ; update counter
+            jnz %%digit_loop         ; loop
+        ; Print hex number string
+        mov byte [ebx + 9], 0x0A ; add newline
+        lea ecx, [ebx+1]         ; because ecx went 8...1
+        mov ebx, STDOUT
+        mov edx, 9 ; 8 hex digits + newline
+        mov eax, SYS_WRITE
+        int 0x80
+        ; Restore all registers. (Reverse order)
+        pop edx ;D
+        pop ecx ;C
+        pop ebx ;B
+        pop eax ;A
+%endmacro ; DEBUG print
+
 %macro CALLWORD 1 ; takes label/addr of word to call
     ; For faking call/ret to word as if 'twas a function
     ; within assembly while creating the meow5 executable.
@@ -112,6 +182,54 @@ DEFWORD exit
     int 0x80
 ENDWORD exit, "exit", (COMPILE | IMMEDIATE) 
 
+; Gets length of null-terminated string
+%macro STRLEN_CODE 0
+    pop eax
+    mov ecx, 0     ; byte counter will contain len
+.find_null:
+    cmp byte [eax + ecx], 0 ; null term?
+    je .strlen_done         ; yes, done
+    inc ecx                 ; no, continue
+    jmp .find_null          ; loop
+.strlen_done:
+    push ecx           ; return len
+%endmacro
+DEFWORD strlen ; (straddr) strlen (straddr len)
+    STRLEN_CODE
+ENDWORD strlen, "strlen", (IMMEDIATE | COMPILE)
+
+; Prints a newline to STDOUT, no fuss
+%macro NEWLINE_CODE 0
+    mov eax, 0x0A      ; newline byte (into 4 byte reg)
+    push eax           ; put on stack so has addr
+    mov ebx, STDOUT    ; write destination file
+    mov edx, 1         ; length = 1 byte
+    mov ecx, esp       ; addr of stack (little-endian!)
+    mov eax, SYS_WRITE ; syscall
+    int 0x80           ; interrupt to linux!
+    pop eax            ; clear the newline from stack
+%endmacro
+DEFWORD newline ; () newline ()
+    NEWLINE_CODE
+ENDWORD newline, "newline", (IMMEDIATE | COMPILE)
+
+; Prints a null-terminated string by address on stack.
+%macro PRINT_CODE 0
+    pop eax            ; dup address for strlen
+    push eax
+    push eax
+    STRLEN_CODE        ; (after: straddr, len)
+    mov ebx, STDOUT    ; write destination file
+    pop edx            ; string address
+    pop ecx            ; strlen
+    mov eax, SYS_WRITE ; syscall
+    int 0x80           ; interrupt to linux!
+%endmacro
+DEFWORD print ; (straddr) print ()
+    PRINT_CODE
+ENDWORD print, "print", (IMMEDIATE | COMPILE)
+
+
 %macro INLINE_CODE 0
     pop esi ; param1: tail of word to inline
     mov edi, [here]    ; destination
@@ -120,7 +238,8 @@ ENDWORD exit, "exit", (COMPILE | IMMEDIATE)
     sub esi, ebx    ; set start of code for movsb
     mov ecx, eax    ; set len of code for movsb
     rep movsb       ; copy [esi]...[esi+ecx] into [edi]
-    add [here], eax ; save current position
+    ;add [here], eax ; save current position
+    mov [here], edi ; movsb updates edi for us
 %endmacro
 DEFWORD inline
     INLINE_CODE
@@ -255,55 +374,6 @@ DEFWORD get_token
     GET_TOKEN_CODE
 ENDWORD get_token, "get_token", (IMMEDIATE)
 
-
-; Gets length of null-terminated string
-; (Note that this doesn't pop the string's start address
-; because I think it's silly to have to duplicate the
-; address on the stack when you _probably_ don't want to do
-; that. Instead, we'll 'drop' if that's what we want later.)
-%macro STRLEN_CODE 0
-    mov eax, [esp] ; get string addr (without popping!)
-    mov ecx, 0     ; byte counter will contain len
-.find_null:
-    cmp byte [eax + ecx], 0 ; null term?
-    je .done                ; yes, done
-    inc ecx                 ; no, continue
-    jmp .find_null          ; loop
-.done:
-    push ecx           ; return len
-%endmacro
-DEFWORD strlen ; (straddr) strlen (straddr len)
-    STRLEN_CODE
-ENDWORD strlen, "strlen", (IMMEDIATE | COMPILE)
-
-; Prints a newline to STDOUT, no fuss
-%macro NEWLINE_CODE 0
-    mov eax, 0x0A      ; newline byte (into 4 byte reg)
-    push eax           ; put on stack so has addr
-    mov ebx, STDOUT    ; write destination file
-    mov edx, 1         ; length = 1 byte
-    mov ecx, esp       ; addr of stack (little-endian!)
-    mov eax, SYS_WRITE ; syscall
-    int 0x80           ; interrupt to linux!
-    pop eax            ; clear the newline from stack
-%endmacro
-DEFWORD newline ; () newline ()
-    NEWLINE_CODE
-ENDWORD newline, "newline", (IMMEDIATE | COMPILE)
-
-; Prints a null-terminated string by address on stack.
-%macro PRINT_CODE 0
-    STRLEN_CODE        ; (after: straddr, len)
-    mov ebx, STDOUT    ; write destination file
-    pop edx            ; strlen
-    pop ecx            ; start address
-    mov eax, SYS_WRITE ; syscall
-    int 0x80           ; interrupt to linux!
-%endmacro
-DEFWORD print ; (straddr) print ()
-    PRINT_CODE
-ENDWORD print, "print", (IMMEDIATE | COMPILE)
-
 ; Copy null-terminated string.
 %macro COPYSTR_CODE 0
     pop edi ; dest
@@ -347,7 +417,6 @@ DEFWORD semicolon
     ; machine code. We need to save that.
     mov eax, [here]
     push eax ; push end of machine code to stack
-
     ; Return Code
     ; Inline 'return' before the tail to allow our new
     ; word to be callable in immdiate mode.
@@ -355,56 +424,47 @@ DEFWORD semicolon
     ;  not an immediate-capable word!)
     push tail_return ; push what to inline on stack
     INLINE_CODE      ; inline the 'return' machine code
-
     ; Start of Tail
     ; The above inline will have advanced 'here' again.
     mov eax, [here] ; Current 'here' position
     mov ecx, eax    ; another copy, for tail start calc
-
     ; Link previous word 'last'
-    ; dd LAST_WORD_TAIL ; 32b address, linked list
     mov ebx, [last] ; get prev tail pointer 'last'
     mov [eax], ebx ; link it here
     mov [last], eax ; and store this tail as new 'last'
     add eax, 4 ; advance 'here' 4 bytes
-
     ; Store length of new word's machine code
-    ; dd (end_%1 - %1)  ; 32b length of word machine code
     pop ebx ; get end of machine code addr pushed above
     pop edx ; get start of machine code addr pushed by ':'
     sub ebx, edx ; calc length of machine code
     mov [eax], ebx
     add eax, 4 ; advance 'here' 4 bytes
-
     ; Store distance from start of tail to start of machine
     ; code.
-    ; dd (tail_%1 - %1) ; 32b distance from tail to start
     sub ecx, edx ; tail - start of mc
     mov [eax], ecx
     add eax, 4 ; advance 'here' 4 bytes
-
     ; Store flags
     ; dd %3             ; 32b flags for word
     ; NOTE: Temporarily hard-coded value!
     mov dword [eax], (IMMEDIATE | COMPILE)
     add eax, 4 ; advance 'here' 4 bytes
-
+    push eax ; save a copy of 'here'
     ; Store name string
     ; db %2, 0          ; xxb null-terminated name string
     push name_buffer  ; source
     push eax          ; destination
     COPYSTR_CODE      ; copy name into tail
-
-    ; TEMP! Call strlen again so we know how much
-    ; string name we wrote to the tail.
+    ; Call strlen so we know how much string name we
+    ; wrote to the tail:
     push name_buffer
     STRLEN_CODE
-    pop ebx ; get string len
+    pop ebx ; get string len pushed by STRLEN_CODE
+    pop eax ; get saved 'here' position
     add eax, ebx ; advance 'here' by that amt
-
+    inc eax      ; plus one for the null
     ; Store here in 'here'
     mov [here], eax
-
     ; return us to immediate mode now that we're done
     mov dword [mode], IMMEDIATE
 ENDWORD semicolon, ";", (COMPILE | RUNCOMP)
@@ -446,7 +506,7 @@ DEFWORD quote
     mov [input_buffer_pos], eax ; save it
     mov [ebx + ecx], byte 0     ; terminate str null
     lea eax, [ebx + ecx + 1]    ; calc next free space
-    mov [free], eax             ; safe it
+    mov [free], eax             ; save it
     EAT_SPACES_CODE             ; advance to next token
 .quote_done:
 ENDWORD quote, 'quote', (IMMEDIATE | COMPILE)
@@ -489,6 +549,10 @@ get_next_token:
     CALLWORD get_token
     cmp dword [esp], 0  ; check return without popping
     je .end_of_input    ; all out of tokens!
+       ; DEBUG "Finding...", [esp]
+       ;  push token_buffer
+       ;  CALLWORD print
+       ;  CALLWORD newline
     CALLWORD find       ; find token, returns tail addr
     cmp dword [esp], 0  ; check return without popping
     je .token_not_found
@@ -500,23 +564,17 @@ get_next_token:
     pop eax    ; get result
     cmp eax, 0 ; if NOT equal, word was RUNCOMP
     jne .exec_word ; yup, RUNCOMP
-         push str_inlining ; 'Inlining "<word>"'
-         CALLWORD print
-         push token_buffer
-         CALLWORD print
-         push str_quote
-         CALLWORD print
-         CALLWORD newline
+       ; DEBUG "Inlining...", [esp]
+       ;  push token_buffer
+       ;  CALLWORD print
+       ;  CALLWORD newline
     CALLWORD inline ; nope, "compile" it.
     jmp get_next_token
 .exec_word:
-         push str_running ; 'Running "<word>"'
-         CALLWORD print
-         push token_buffer
-         CALLWORD print
-         push str_quote
-         CALLWORD print
-         CALLWORD newline
+       ; DEBUG "Running...", [esp]
+       ;  push token_buffer
+       ;  CALLWORD print
+       ;  CALLWORD newline
     ; Run current word in immediate mode!
     ; We currently have the tail of a found word.
     pop ebx ; addr of word tail left on stack by 'find'
@@ -558,7 +616,4 @@ str_not_found2: db '" while looking in ',0
 str_not_found3: db ` mode.\n`,0
 str_mode_immediate: db 'IMMEDIATE',0
 str_mode_compile: db 'COMPILE',0
-str_inlining: db 'Inlining "',0
-str_running: db 'Running "',0
-str_quote: db '"',0
 str_end_of_input: db 'Ran out of input!',0
