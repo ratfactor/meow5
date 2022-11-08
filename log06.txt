@@ -598,3 +598,44 @@ Meow.Meow.Meow.Meow.Meow.
             too.  Performance is totally not a concern with
             these convenience macros in the interpreter.
 
+    Well, that was even easier than I expected.
+
+    Now to test (I'm using PRINTSTR in DEBUG and
+    stand-alone):
+
+        PRINTSTR "Hello world!"
+        NEWLINE_CODE
+
+        DEBUG "[here] starting at 0x", [here]
+
+    Run:
+
+$ mr
+Hello world!
+[here] starting at 0x0804a114
+Meow.Meow.Meow.Meow.Meow.
+
+    And replaced all the strings in the data section with my
+    PRINSTR macro - which makes those parts at least 30%
+    shorter and MUCH easier to read.
+
+    Here's where I'm at with the TODOs in this log:
+
+
+        [x] Replace return stack with single addr
+        [ ] Pretty-print meta info about word!
+        [ ] Loop through dictionary, list all names
+        [ ] Loop through dictionary, pretty-print all
+        [x] Add string literals.
+        [x] Re-define 'meow' using a string literal.
+        [x] New word: 'eat_spaces'
+        [x] Factor out a PRINTSTR macro from DEBUG
+            [x] Use it in DEBUG
+            [x] Replace data strings + CALLWORD print
+
+    So  I'll start the next log where I started this one:
+    With the fun dictionary pretty-printer words.
+
+    This log's progress has been better than I'd hoped for
+    and I think now I'm in a good position for the fun
+    stuff!

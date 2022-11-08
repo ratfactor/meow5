@@ -1,0 +1,20 @@
+    Welcome back! In the last log, I got string literals
+    working with the 'quote' word.
+
+    One thing lead to another and I ended up solving a lot
+    of different problems so that now I can define words
+    not just from "primitives" (machine code words written
+    in assembler), but also words composed from *other*
+    non-primitive words.
+
+    So yeah, you can only make programs that print strings,
+    but they are real programs.
+
+    Okay, so now the fun TODOs!
+
+        [ ] Pretty-print meta info about word!
+        [ ] Loop through dictionary, list all names
+        [ ] Loop through dictionary, pretty-print all
+
+    (And I'm not being sarcastic - I'm looking forward to
+    these.)

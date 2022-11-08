@@ -43,6 +43,7 @@ section .data
 input_buffer:
     db ': meow "Meow." print ; '
     db ': meow5 meow meow meow meow meow ; '
+    db 'morp '
     db 'meow5 '
     db 'newline '
     db 'exit',0
@@ -51,15 +52,11 @@ input_buffer:
 ; MACROS!
 ; ----------------------------------------------------------
 
-; DEBUG print
-;   Examples:
-;     DEBUG "Value in eax: ", eax
-;     DEBUG "My memory: ", [mem_label]
-;     DEBUG "32 bits of glory: ", 0xDEADBEEF
-%macro DEBUG 2
-    ; First param is the string to print - put it in data
-    ; section with macro-local label %%str.  No need for
-    ; null termination.
+; PRINTSTR "Foo bar."
+%macro PRINTSTR 1
+    ; Param is the string to print - put it in data section
+    ; with macro-local label %%str.  No need for null
+    ; termination.
     %strlen mystr_len %1 ; and get length for later
     section .data
         %%mystr: db %1
@@ -71,47 +68,10 @@ input_buffer:
         push ebx ;B
         push ecx ;C
         push edx ;D
-        ; Second param is the source expression for this
-        ; MOV instruction - we'll print this value as a
-        ; 32bit (4 byte, dword, 8 digit) hex num.
-        ; We must perform the MOV now before the register
-        ; values are overwritten by printing the string.
-        mov eax, %2
-        push eax ; save value to print
         ; Print the string
         mov ebx, STDOUT
         mov edx, mystr_len
         mov ecx, %%mystr
-        mov eax, SYS_WRITE
-        int 0x80
-        ; Now print the value. We'll use the stack as a
-        ; scratch space to construct the ASCII string of the
-        ; hex value. Only 9 bytes are needed (8 digits +
-        ; newline), but due to a tricky "fencepost" issue,
-        ; I've elected to leave room for 10 bytes and
-        ; "waste" the first one.
-        pop eax ; get it back off the stack
-        lea ebx, [esp - 10]  ; make room for string
-        mov    ecx, 8 ; counter - 8 characters
-        %%digit_loop:
-            mov edx, eax
-            and edx, 0x0f   ; just keep lowest 4 bits
-            cmp edx, 9      ; bigger than 9?
-            jg  %%af        ; yes, print 'a'-'f'
-            add edx, '0'    ; no, turn it into ascii number
-            jmp %%continue
-        %%af:
-            add edx, 'a'-10 ; because 10 is 'a'...
-        %%continue:
-            mov byte [ebx + ecx], dl ; store character
-            ror eax, 4               ; rotate 4 bits
-            dec ecx                  ; update counter
-            jnz %%digit_loop         ; loop
-        ; Print hex number string
-        mov byte [ebx + 9], 0x0A ; add newline
-        lea ecx, [ebx+1]         ; because ecx went 8...1
-        mov ebx, STDOUT
-        mov edx, 9 ; 8 hex digits + newline
         mov eax, SYS_WRITE
         int 0x80
         ; Restore all registers. (Reverse order)
@@ -119,6 +79,56 @@ input_buffer:
         pop ecx ;C
         pop ebx ;B
         pop eax ;A
+%endmacro ; DEBUG print
+
+%macro DEBUG 2
+    PRINTSTR %1
+    ; Make this safe to plop absolutely anywhere
+    ; by pushing the 4 registers used.
+    push eax ;A
+    push ebx ;B
+    push ecx ;C
+    push edx ;D
+    ; Second param is the source expression for this
+    ; MOV instruction - we'll print this value as a
+    ; 32bit (4 byte, dword, 8 digit) hex num.
+    ; We must perform the MOV now before the register
+    ; values are overwritten by printing the string.
+    mov eax, %2
+    ; Now print the value. We'll use the stack as a
+    ; scratch space to construct the ASCII string of the
+    ; hex value. Only 9 bytes are needed (8 digits +
+    ; newline), but due to a tricky "fencepost" issue,
+    ; I've elected to leave room for 10 bytes and
+    ; "waste" the first one.
+    lea ebx, [esp - 10]  ; make room for string
+    mov    ecx, 8 ; counter - 8 characters
+    %%digit_loop:
+        mov edx, eax
+        and edx, 0x0f   ; just keep lowest 4 bits
+        cmp edx, 9      ; bigger than 9?
+        jg  %%af        ; yes, print 'a'-'f'
+        add edx, '0'    ; no, turn it into ascii number
+        jmp %%continue
+    %%af:
+        add edx, 'a'-10 ; because 10 is 'a'...
+    %%continue:
+        mov byte [ebx + ecx], dl ; store character
+        ror eax, 4               ; rotate 4 bits
+        dec ecx                  ; update counter
+        jnz %%digit_loop         ; loop
+    ; Print hex number string
+    mov byte [ebx + 9], 0x0A ; add newline
+    lea ecx, [ebx+1]         ; because ecx went 8...1
+    mov ebx, STDOUT
+    mov edx, 9 ; 8 hex digits + newline
+    mov eax, SYS_WRITE
+    int 0x80
+    ; Restore all registers. (Reverse order)
+    pop edx ;D
+    pop ecx ;C
+    pop ebx ;B
+    pop eax ;A
 %endmacro ; DEBUG print
 
 %macro CALLWORD 1 ; takes label/addr of word to call
@@ -540,6 +550,11 @@ _start:
     ; more input. But for now, set to start of buffer:
     mov dword [input_buffer_pos], input_buffer
 
+    PRINTSTR "Hello world!"
+    NEWLINE_CODE
+
+    DEBUG "[here] starting at 0x", [here]
+
 ; ----------------------------------------------------------
 ; Interpreter!
 ; ----------------------------------------------------------
@@ -583,37 +598,23 @@ get_next_token:
     CALLWORD ebx ; call word with that addr (via reg)
     jmp get_next_token
 .end_of_input:
-    push str_end_of_input
-    CALLWORD print
+    PRINTSTR 'Ran out of input!'
     CALLWORD newline
     CALLWORD exit
 .token_not_found:
     ; Putting strings together this way is quite painful...
     ; "Could not find word "foo" while looking in <mode> mode."
-    push str_not_found1
-    CALLWORD print
+    PRINTSTR 'Could not find word "'
     push token_buffer
     CALLWORD print
-    push str_not_found2
-    CALLWORD print
+    PRINTSTR '" while looking in '
     cmp dword [mode], IMMEDIATE
     je .immediate_not_found
-    push str_mode_compile ; "COMPILE"
-    jmp .print_mode
+    PRINTSTR 'COMPILE'
+    jmp .finish_not_found
 .immediate_not_found:
-    push str_mode_immediate ; "IMMEDIATE"
-.print_mode:
-    CALLWORD print
-    push str_not_found3
-    CALLWORD print
+    PRINTSTR 'IMMEDIATE'
+.finish_not_found:
+    PRINTSTR ' mode.'
+    NEWLINE_CODE
     CALLWORD exit
-
-; Interpreter strings - I got tired of jumping to the top of
-; the program to hunt these down and change them.
-section .data
-str_not_found1: db 'Could not find word "',0
-str_not_found2: db '" while looking in ',0
-str_not_found3: db ` mode.\n`,0
-str_mode_immediate: db 'IMMEDIATE',0
-str_mode_compile: db 'COMPILE',0
-str_end_of_input: db 'Ran out of input!',0
