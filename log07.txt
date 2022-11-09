@@ -16,5 +16,113 @@
         [ ] Loop through dictionary, list all names
         [ ] Loop through dictionary, pretty-print all
 
-    (And I'm not being sarcastic - I'm looking forward to
-    these.)
+    (And I'm not being sarcastic or something - I'm really
+    looking forward to these.)
+
+    First, I need general number handling! I need to parse
+    numbers from input and I need to be able to print
+    numbers as strings.
+
+        [ ] New word: str2num (ascii to integer)
+        [ ] New word: num2str (integer to ascii)
+
+    I'd also like to have the ability to intuitively append
+    strings. Ideally:
+
+        "There are " 5 " chickens."
+        "Your name is '" username "'?"
+
+    (I also don't have variables yet, so the username one is
+    even more hypothetical. But you get the idea.)
+
+    My new 'str2num' word seems to work. I realized I could
+    use the exit status of the epplication since it is
+    already popping a number from the stack (which I'd
+    completely forgotten about, ha ha).
+
+    I updated my `mr` (meow5 run) alias to print the exit
+    status:
+
+        alias mr=`./build.sh run ; echo "Exit status: $?"'
+
+    The current parse/print number radix is set in a new
+    "variable" currently set to decimal on startup:
+
+        mov dword [radix], 10
+
+    And created these words to manage the radix:
+
+        radix (takes number from stack)
+        dec  - sets radix to 10
+        hex  - sets radix to 16
+        oct  - sets radix to 8
+        bin  - sets radix to 2
+
+    Now I'll try str2num out with a decimal number:
+
+        42 exit
+
+$ mr
+Exit status: 42
+
+    And I'll mess with it by giving it a hex number without
+    updating the radix to hex:
+
+        ff exit
+
+$ mr
+Could not find word "ff" while looking in IMMEDIATE mode.
+Exit status: 1
+
+    Now I'll compact the results a bit to not take up too
+    much room here:
+
+hex ff exit         <-- hexadecimal
+Exit status: 255
+
+
+oct 100 exit        <-- octal
+Exit status: 64
+
+bin 101010 exit     <-- binary
+Exit status: 42         (uh...seems right)
+bin 11111111 exit
+Exit status: 255        (yup, that's definitely right)
+
+    Alright! Now this is getting fun. It'll be even better
+    when it's taking input from STDIN to be fully
+    interactive.
+
+    Number printing is interesting. So I could just have it
+    print numbers when requested, like Forth's DOT (.) word.
+    But to print some mixed strings and numbers would look
+    like this:
+
+        "You own " print 16 printnum " snakes." print
+
+    And like I wrote above in this log, I'd rather have
+    strings and numbers automatically appended like this:
+
+        "You own " 16 " snakes." print
+
+    But I'm not sure if that's a good idea or not because
+    I'm going to either have to further complicate my
+    interpreter (it's already doing look-ahead for quotes so
+    I don't have to have a space like in Forth: " foo") or
+    some up with something else.
+
+    One thing I've thought about is having interpolated
+    strings. As long as I have some unambiguous symbol, I
+    could have it pop numbers off the stack and append them
+    to the string as I go:
+
+        16 "You own $ snakes." print
+
+    I planed to have escapes anyway, so \$ for a literal '$'
+    is no problem.
+
+    Okay, I like that.
+
+    So I need to write num2str now and then add number
+    interpolation to my 'quote' word. This is gonna be cool!
+

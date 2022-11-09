@@ -19,6 +19,7 @@
 ; ----------------------------------------------------------
 section .bss
 mode: resb 4            ; IMMEDATE or COMPILE
+var_radix: resb 4       ; decimal=10, hex=16, etc.
 last: resb 4            ; Pointer to last defined word tail
 here: resb 4            ; Will point to compile_area
 free: resb 4            ; Will point to data_area
@@ -43,10 +44,9 @@ section .data
 input_buffer:
     db ': meow "Meow." print ; '
     db ': meow5 meow meow meow meow meow ; '
-    db 'morp '
     db 'meow5 '
     db 'newline '
-    db 'exit',0
+    db 'bin 11111111 exit',0
 
 ; ----------------------------------------------------------
 ; MACROS!
@@ -521,6 +521,79 @@ DEFWORD quote
 .quote_done:
 ENDWORD quote, 'quote', (IMMEDIATE | COMPILE)
 
+; Attempts to parse num from string using radix.
+; Doesn't handle negative sign. Leaves just 0
+; (false) on stack if not successful.
+DEFWORD str2num ; (str_addr -- [num] success)
+    pop ebp ; address of input token
+    mov eax, 0 ; result
+    mov ebx, 0 ; char conversion
+    mov ecx, 0 ; char counter/pointer
+    mov edx, [var_radix]
+.next_char:
+    mov bl, [ebp + ecx] ; put char in bl
+    cmp bl, 0           ; null terminator?
+    je .return_num      ; yup, return value
+    inc ecx
+    ; Multiply the current value by the radix to prepare for
+    ; the next, less significant digit. If we're starting
+    ; out, the current value is 0, which is no problem.
+    imul eax, edx
+    cmp bl, '0'         ; ASCII less than '0' is invalid
+    jl .error
+    cmp bl, '9'         ; is it '0'-'9'?
+    jg .try_upper       ; no, try 'A'-'Z'
+    sub bl, '0'         ; yes, convert ASCII '0' to 0
+    jmp .add_value
+.try_upper:
+    cmp bl, 'A'
+    jl .error
+    cmp bl, 'Z'
+    jg .try_lower
+    sub bl, ('A'-10) ; it's uppercase, convert 'A' to 10
+    jmp .add_value
+.try_lower:
+    cmp bl, 'z'
+    jg .error
+    sub bl, ('a'-10) ; it's lowercase, convert 'a' to 10
+    jmp .add_value
+.add_value:
+    ; Make sure the number is within the radix
+    cmp bl, dl ; edx has radix
+    jg .error  ; greater than radix
+    add eax, ebx   ; bl has converted char's value
+    jmp .next_char ; loop
+.error:
+    push 0         ; failure code (false)
+    jmp .str2num_done
+.return_num:
+    cmp ecx, 0     ; did we actually get any chars?
+    je .error      ; no, empty token string! error
+    push eax       ; push number
+    push 1         ; success (true)
+.str2num_done:
+ENDWORD str2num, 'str2num', (IMMEDIATE | COMPILE)
+
+%macro RADIX_CODE 0
+    pop eax
+    mov [var_radix], eax
+%endmacro
+DEFWORD radix
+    RADIX_CODE
+ENDWORD radix, 'radix', (IMMEDIATE | COMPILE)
+DEFWORD hex
+    mov dword [var_radix], 16
+ENDWORD hex, 'hex', (IMMEDIATE | COMPILE)
+DEFWORD oct
+    mov dword [var_radix], 8 
+ENDWORD oct, 'oct', (IMMEDIATE | COMPILE)
+DEFWORD bin
+    mov dword [var_radix], 2
+ENDWORD bin, 'bin', (IMMEDIATE | COMPILE)
+DEFWORD dec
+    mov dword [var_radix], 10
+ENDWORD dec, 'dec', (IMMEDIATE | COMPILE)
+
 
 ; ----------------------------------------------------------
 ; PROGRAM START!
@@ -550,10 +623,8 @@ _start:
     ; more input. But for now, set to start of buffer:
     mov dword [input_buffer_pos], input_buffer
 
-    PRINTSTR "Hello world!"
-    NEWLINE_CODE
-
-    DEBUG "[here] starting at 0x", [here]
+    ; Start off parsinga and printing numbers as decimals.
+    mov dword [var_radix], 10
 
 ; ----------------------------------------------------------
 ; Interpreter!
@@ -562,15 +633,21 @@ get_next_token:
     CALLWORD eat_spaces
     CALLWORD quote      ; handle any string literals
     CALLWORD get_token
-    cmp dword [esp], 0  ; check return without popping
+    pop eax    ; get_token returns address or 0
+    cmp eax, 0
     je .end_of_input    ; all out of tokens!
        ; DEBUG "Finding...", [esp]
        ;  push token_buffer
        ;  CALLWORD print
        ;  CALLWORD newline
+    push eax ; token addr for number (if find fails)
+    push eax ; token addr for find
     CALLWORD find       ; find token, returns tail addr
-    cmp dword [esp], 0  ; check return without popping
-    je .token_not_found
+    pop eax        ; find's return value
+    pop ebx        ; the token addr for number
+    cmp eax, 0     ; did find fail?
+    je .try_number ; yes, try number, addr in ebx
+    push eax       ; find successful, put result back
     cmp dword [mode], IMMEDIATE
     je .exec_word
     ; We're in compile mode...
@@ -598,8 +675,25 @@ get_next_token:
     CALLWORD ebx ; call word with that addr (via reg)
     jmp get_next_token
 .end_of_input:
-    PRINTSTR 'Ran out of input!'
+    PRINTSTR 'Goodbye.'
     CALLWORD newline
+    push 0 ; exit status
+    CALLWORD exit
+.try_number:
+    push ebx ; put token address back on stack
+    CALLWORD str2num
+    pop eax
+    cmp eax, 0           ; did it fail?
+    je .token_not_found  ; fail, not a valid number
+    cmp dword [mode], COMPILE
+    je .compile_number
+    ; We got number in IMMEDIATE mode, so just keep the
+    ; value on the stack and keep going!
+    jmp get_next_token
+.compile_number:
+    ; note: number is still on stack
+    PRINTSTR 'TODO: a new compile number word?'
+    push 0 ; exit status (happy)
     CALLWORD exit
 .token_not_found:
     ; Putting strings together this way is quite painful...
@@ -617,4 +711,5 @@ get_next_token:
 .finish_not_found:
     PRINTSTR ' mode.'
     NEWLINE_CODE
+    push 1 ; exit status (error)
     CALLWORD exit
