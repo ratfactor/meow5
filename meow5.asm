@@ -521,6 +521,39 @@ DEFWORD quote
 .quote_done:
 ENDWORD quote, 'quote', (IMMEDIATE | COMPILE)
 
+; Takes an addr and number from stack, writes string
+; representation (not null-terminated) of number to the
+; address and returns number of bytes (characters) written.
+DEFWORD num2str ; (num addr -- bytes_written)
+    pop ebp ; address of string destination
+    pop eax ; number
+    mov ecx, 0 ; counter of digit characters
+    mov ebx, [var_radix]
+.divide_next:    ; idiv divides
+    mov edx, 0   ; div actually divides edx:eax / ebx!
+    div ebx      ; eax / ebx = eax, remainder in edx
+    cmp edx, 9   ; digit bigger than 9? (radix allows a-z)
+    jg .toalpha  ; yes, convert to 'a'-'z'
+    add edx, '0' ; no, convert to '0'-'9'
+    jmp .store_char
+.toalpha:
+    add edx, ('a'-10) ; to convert 10 to 'a'
+.store_char:
+    push edx ; put on stack (pop later to reverse order)
+    inc ecx
+    cmp eax, 0        ; are we done converting?
+    jne .divide_next  ; no, loop
+    mov eax, ecx      ; yes, store counter as return value
+    mov ecx, 0        ; now we'll count up
+.store_next:
+    pop edx  ; popping to reverse order
+    mov [ebp + ecx], edx  ; store it at addr!
+    inc ecx
+    cmp ecx, eax      ; are we done storing?
+    jl .store_next
+    push eax  ; return num chars written
+ENDWORD num2str, "num2str", (IMMEDIATE | COMPILE)
+
 ; Attempts to parse num from string using radix.
 ; Doesn't handle negative sign. Leaves just 0
 ; (false) on stack if not successful.
@@ -590,9 +623,9 @@ ENDWORD oct, 'oct', (IMMEDIATE | COMPILE)
 DEFWORD bin
     mov dword [var_radix], 2
 ENDWORD bin, 'bin', (IMMEDIATE | COMPILE)
-DEFWORD dec
+DEFWORD decimal
     mov dword [var_radix], 10
-ENDWORD dec, 'dec', (IMMEDIATE | COMPILE)
+ENDWORD decimal, 'decimal', (IMMEDIATE | COMPILE)
 
 
 ; ----------------------------------------------------------
@@ -625,6 +658,17 @@ _start:
 
     ; Start off parsinga and printing numbers as decimals.
     mov dword [var_radix], 10
+
+    ; test num2str
+    CALLWORD bin
+    push dword 257
+    push dword [free] ; store here
+    CALLWORD num2str
+    PRINTSTR "Answer: "
+    push dword [free] ; print from here
+    CALLWORD print
+    CALLWORD newline
+    CALLWORD exit     ; stack still has chars written
 
 ; ----------------------------------------------------------
 ; Interpreter!

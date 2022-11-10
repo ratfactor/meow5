@@ -126,3 +126,196 @@ Exit status: 255        (yup, that's definitely right)
     So I need to write num2str now and then add number
     interpolation to my 'quote' word. This is gonna be cool!
 
+    Next night: Wrote num2str. I've got a division error.
+    Here's how I'm testing:
+
+        ; test num2str
+        push 42           ; num
+        push dword [free] ; store here
+        CALLWORD num2str
+        pop eax        ; chars written
+
+    First, let's double-check the input:
+
+(gdb) break num2str
+528	    pop ebp ; address of string destination
+num2str () at meow5.asm:529
+529	    pop eax ; number
+num2str () at meow5.asm:530
+530	    mov ecx, 0 ; counter of digit characters
+531	    mov ebx, [var_radix]
+532	    mov edx, 0
+(gdb) p/a $ebp
+$1 = 0x804b114 <data_area>  <-- addr for string storage
+(gdb) p $eax
+$2 = 42                     <-- num to convert
+(gdb) p $ebx
+$3 = 10                     <-- radix
+
+    That's all good:
+
+        string storage addr: 0x804b114
+             num to convert: 42
+                      radix: 10
+
+    Now we'll start converting. I divide the number by the
+    radix. The remainder is the digit that was less than the
+    radix (so 0-9 for dec, 0-f for hex, etc.). The result of
+    the division is the rest of the number.
+
+(gdb) s
+num2str.divide_next () at meow5.asm:534
+534	    idiv ebx     ; eax / ebx = eax, remainder in edx
+(gdb) p $eax
+$6 = 4                      <-- quotient
+(gdb) p $ebx
+$7 = 10                     <-- radix (double-checking)
+(gdb) p $edx
+$8 = 2                      <-- remainder (digit to convert)
+
+    Yup, that looks good. We've got the first digit (working
+    lowest to highest) to convert to a character (2) and the
+    rest of the number with the first digit gone (4).
+
+    I convert to the character equivalent and store that on
+    the stack temporarily. This is because I convert
+    starting from the least significant digit, but we want
+    the string to have the number in the expected order,
+    starting with the greatest significant digit.
+
+(gdb) s
+535	    cmp edx, 9   ; digit bigger than 9? (radix allows a-z)
+536	    jg .toalpha  ; yes, convert to 'a'-'z'
+537	    add edx, '0' ; no, convert to '0'-'9'
+538	    jmp .store_char
+num2str.store_char () at meow5.asm:542
+542	    push edx ; put on stack (pop later to reverse order)
+543	    inc ecx
+544	    cmp eax, 0        ; are we done converting?
+545	    jne .divide_next  ; no, loop
+
+    Now it's on to the next division:
+
+Program received signal SIGFPE, Arithmetic exception.
+num2str.divide_next () at meow5.asm:534
+534	    idiv ebx     ; eax / ebx = eax, remainder in edx
+
+    There it is. Well, I'm not dividing by 0, so that's
+    good. But then I remember idiv is signed division, and
+    I'm not doing signed integers just yet. Maybe that's it?
+
+    Ah, a quick look at a reference:
+
+        "32-bit division with IDIV requires EAX be
+        sign-extended into EDX."
+
+    Yeah, I don't want to do signed division anyway because
+    I don't have the ability to parse or print negative
+    numbers (yet?) so I should really be using DIV anyway:
+
+Program received signal SIGFPE, Arithmetic exception.
+
+    Nope! I know this isn't a divide-by-zero problem...
+
+    Oh, I needed to read a bit more:
+
+        "DIV Always divides the 64 bits value accross
+        EDX:EAX by a value."
+
+    Oh, right, I need to clear EDX to 0 in my division loop
+    because it currently holds the character to convert. It
+    makes total sense that the answer is overflowing. I was
+    dividing by a huge 64-bit number the second time around!
+
+    So I just need to clear edx before my division:
+
+533	    mov edx, 0   ; div actually divides edx:eax / ebx!
+534	    div ebx      ; eax / ebx = eax, remainder in edx
+535	    cmp edx, 9   ; digit bigger than 9? (radix allows a-z)
+(gdb) p $eax
+$1 = 0
+(gdb) p $edx
+$2 = 4
+
+    That's got it! The final digit (remainder after
+    division) is 4 and there's nothing left to divide after
+    that (quotient is 0).
+
+    Once it sees the rest of the number is now 0, I store
+    the string at the address provided and return the number
+    of characters written (digits in radix) on the stack:
+
+554	    push eax  ; return num chars written
+end_num2str () at meow5.asm:149
+149	    mov eax, [return_addr] ; RETURN
+(gdb) p $eax
+$1 = 2
+(gdb) x/s $ebp
+0x804b114 <data_area>:	"42"
+
+    Correct! Two characters were written, and the string is
+    "42", my value in decimal!
+
+    Since I can now, I'll make the test print real nice and
+    use the exit value to show the number of digits written
+    (to make sure it's correct):
+
+        ; test num2str
+        CALLWORD decimal
+        push dword 42     ; num
+        push dword [free] ; store here
+        CALLWORD num2str
+        PRINTSTR "Answer: "
+        push dword [free] ; print from here
+        CALLWORD print
+        CALLWORD newline
+        CALLWORD exit     ; stack still has chars written
+
+$ mr
+Answer: 42
+Exit status: 2
+
+    Correct. Let's see some others:
+
+        CALLWORD oct
+        push dword 64
+
+Answer: 100
+Exit status: 3
+
+        CALLWORD hex
+        push dword 3735928559
+
+Answer: deadbeef
+Exit status: 8
+
+        CALLWORD bin
+        push dword 7
+
+Answer: 111
+Exit status: 3
+
+        CALLWORD bin
+        push dword 257
+
+Answer: 100000001
+Exit status: 9
+
+    Looks good! Now I'm kinda wishing the interpreter was
+    interactive because that would have been way more fun
+    than changing the assembly test for each run. But
+    that'll be coming up soon enough.
+
+    After sleeping on it, I'm really excited about the idea
+    of string interpolation using '$' as a placeholder. So
+    I'll make that the next todo:
+
+        [ ] Add "$" placeholders so the 'quote' word so it
+            can interpolate numbers from the stack into the
+            string.
+
+    I suspect the hard part will be remembering to push the
+    stack values in the opposite order that they appear in
+    the string...so we'll see what that's like in practice.
+
+
