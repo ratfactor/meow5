@@ -1,5 +1,7 @@
 # Meow5: "Meow. Meow. Meow. Meow. Meow."
 
+<img src="meow5cat.svg" alt="SVG meow5 kitty cat logo" align="right">
+
 This is a work in progress. Check the `log*.txt` files to
 see where I'm currently at! Also take a look at
 `design-notes.txt` for more ongoing thoughts (also kinda
