@@ -318,4 +318,38 @@ Exit status: 9
     stack values in the opposite order that they appear in
     the string...so we'll see what that's like in practice.
 
+    Okay, I've got it working, but only just barely. It
+    feels incredibly fragile. In particular, the interpreter
+    has become way too complicated for my taste. Juggling
+    registers willy-nilly and using the stack when I run out
+    of places to put things is just sloppy.
 
+    It does work. Cleaned up example:
+
+        42 "The answer is $." print
+        42 hex "The answer is 0x$ in hex." print
+        42 bin "The answer is $ in computer." print
+        42 oct "The answer is $ in octal." print
+
+    Output:
+
+The answer is 42.
+The answer is 0x2a in hex.
+The answer is 101010 in computer.
+The answer is 52 in octal.
+
+    Which is really cool. But I need to get my mess under
+    control.
+
+    For one thing, I've been using the registers very
+    inconsistantly because I don't have any plan regarding
+    where to put stuff.
+
+    This article has helped a ton:
+
+        https://www.swansontec.com/sregisters.html
+
+    I'm not sure I'm going to re-write EVERYTHING to
+    follow these guidelines, but new stuff definitely will
+    and I'm going to immediately switch the 'quote' word to
+    use the esi and edi registers!

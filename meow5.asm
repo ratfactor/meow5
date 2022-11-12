@@ -42,6 +42,10 @@ section .data
 ; NOTE: This buffer will move to the BSS section when I
 ; start reading real input.
 input_buffer:
+    db '42 "The answer is $." print newline '
+    db 'decimal 42 hex "The answer is 0x$ in hex." print newline '
+    db 'decimal 42 bin "The answer is $ in computer." print newline '
+    db 'decimal 42 oct "The answer is $ in octal." print newline '
     db ': meow "Meow." print ; '
     db ': meow5 meow meow meow meow meow ; '
     db 'meow5 '
@@ -479,52 +483,10 @@ DEFWORD semicolon
     mov dword [mode], IMMEDIATE
 ENDWORD semicolon, ";", (COMPILE | RUNCOMP)
 
-; Checks if the next character is a quote. If not, do
-; nothing. If it is, copy the string up to the endquote into
-; the data_area and then return its address. Update free.
-DEFWORD quote
-    mov ebp, [input_buffer_pos]
-    mov al, [ebp]
-    cmp al, '"'         ; next char a quote?
-    jne .quote_done     ; nope, do nothing
-    inc ebp             ; yup, now move past it
-    mov ecx, 0          ; initialize input pos
-    mov ebx, [free]     ; get string's new address
-    ; If we're in immediate mode, we will push this new
-    ; string's address on the stack immediately. But if
-    ; we're in compile mode, we need to inline code to push
-    ; the string's address at run time!
-    cmp dword [mode], IMMEDIATE
-    je .immediately
-    mov edx, [here]          ; compile mode, compile here
-    mov byte [edx], 0x68     ; i386 opcode for PUSH imm32
-    mov dword [edx + 1], ebx ; address of string
-    add edx, 5               ; update here
-    mov [here], edx          ; save it
-    jmp .copy_char
-.immediately:
-    push ebx            ; just put addr on stack now
-.copy_char:
-    mov al, [ebp + ecx]
-    cmp al, '"'         ; look for endquote
-    je .end_quote
-    mov [ebx + ecx], al ; copy character
-    inc ecx             ; next char
-    jmp .copy_char      ; loop
-.end_quote:
-    lea eax, [ebp + ecx + 1]    ; get next input position
-    mov [input_buffer_pos], eax ; save it
-    mov [ebx + ecx], byte 0     ; terminate str null
-    lea eax, [ebx + ecx + 1]    ; calc next free space
-    mov [free], eax             ; save it
-    EAT_SPACES_CODE             ; advance to next token
-.quote_done:
-ENDWORD quote, 'quote', (IMMEDIATE | COMPILE)
-
 ; Takes an addr and number from stack, writes string
 ; representation (not null-terminated) of number to the
 ; address and returns number of bytes (characters) written.
-DEFWORD num2str ; (num addr -- bytes_written)
+%macro NUM2STR_CODE 0
     pop ebp ; address of string destination
     pop eax ; number
     mov ecx, 0 ; counter of digit characters
@@ -552,7 +514,105 @@ DEFWORD num2str ; (num addr -- bytes_written)
     cmp ecx, eax      ; are we done storing?
     jl .store_next
     push eax  ; return num chars written
+%endmacro
+DEFWORD num2str ; (num addr -- bytes_written)
+    NUM2STR_CODE
 ENDWORD num2str, "num2str", (IMMEDIATE | COMPILE)
+
+; Checks if the next character is a quote. If not, do
+; nothing. If it is, copy the string up to the endquote into
+; the data_area and then return its address. Update free.
+DEFWORD quote
+    mov ebp, [input_buffer_pos]
+    mov al, [ebp]
+    cmp al, '"'         ; next char a quote?
+    jne .quote_done     ; nope, do nothing
+    inc ebp             ; yup, now move past it
+    mov ecx, 0          ; initialize input pos
+    mov ecx, 0          ; initialize destination pos
+    mov ebx, [free]     ; get string's new address
+    mov edx, [here]          ; compile here
+    mov byte [edx], 0x68     ; i386 opcode for PUSH imm32
+    mov dword [edx + 1], ebx ; address of string
+    add edx, 5               ; update here
+    mov [here], edx          ; save it
+    jmp .copy_char
+.copy_char:
+    mov al, [ebp + ecx]
+    cmp al, '"'         ; look for endquote
+    je .end_quote
+    cmp al, '\'         ; escape sequence
+    je .insert_esc
+    cmp al, '$'         ; numeric placeholder
+    je .insert_num
+    mov [ebx + ecx], al ; copy character
+    inc ecx             ; next char
+    jmp .copy_char      ; loop
+
+
+    ; WORK IN PROGRESS
+    ; *****************************************
+.insert_esc:
+    ; First, move backward in the 
+    sub ebx, 1 ; don't advance the destination
+    ; read the next character to determine what to do:
+    inc ecx
+    mov al, [ebp + ecx]
+    cmp al, '\' ; we want a literal backslash
+    ; ...
+    ; *****************************************
+
+.insert_num:
+    ; We have been given a $ placeholder, so now we'll pop a
+    ; value (4-byte number) off the stack and write it as a
+    ; string, continuing the string we're copying right now.
+    ;
+    ; num2str takes two things on the stack: the number to
+    ; convert, and a destination address for writing the
+    ; string. So we put our current write addr there.
+    ;
+    ; juggle!!!!
+
+    pop eax ; get number to convert from stack...
+
+    push ebx ; preserve before num2str
+    push ecx
+    push edx
+    push ebp
+
+    push eax     ; num2str: num to convert
+    mov eax, ebx ; copy destination addr
+    add eax, ecx ; add character count
+    push eax     ; num2str: destination address
+    NUM2STR_CODE
+    pop eax      ; chars written
+
+    ; restore
+    pop ebp ; restore after num2str
+    pop edx
+    pop ecx
+    pop ebx
+
+    ; Now add bytes written to offset destination address.
+    ; (The '$' placeholder took up 1 byte of space in the
+    ; source string, but we may have written multple bytes
+    ; in the destination string.)
+    ; So we add *one less* than the bytes written or we'll
+    ; end up with a null right after the number!
+    sub eax, 1
+    add ebx, eax
+    inc ecx         ; move past '$' or we'll be stuck!
+    jmp .copy_char  ; loop 
+.end_quote:
+    lea eax, [ebp + ecx + 1]    ; get next input position
+    mov [input_buffer_pos], eax ; save it
+    mov [ebx + ecx], byte 0     ; terminate str null
+    lea eax, [ebx + ecx + 1]    ; calc next free space
+    push dword [free]           ; leave string addr on stack
+    mov [free], eax             ; save it
+    EAT_SPACES_CODE             ; advance to next token
+.quote_done:
+ENDWORD quote, 'quote', (IMMEDIATE | COMPILE)
 
 ; Attempts to parse num from string using radix.
 ; Doesn't handle negative sign. Leaves just 0
@@ -659,36 +719,20 @@ _start:
     ; Start off parsinga and printing numbers as decimals.
     mov dword [var_radix], 10
 
-    ; test num2str
-    CALLWORD bin
-    push dword 257
-    push dword [free] ; store here
-    CALLWORD num2str
-    PRINTSTR "Answer: "
-    push dword [free] ; print from here
-    CALLWORD print
-    CALLWORD newline
-    CALLWORD exit     ; stack still has chars written
 
 ; ----------------------------------------------------------
 ; Interpreter!
 ; ----------------------------------------------------------
 get_next_token:
-    CALLWORD eat_spaces
+    CALLWORD eat_spaces ; skip whitespace
     CALLWORD quote      ; handle any string literals
     CALLWORD get_token
     pop eax    ; get_token returns address or 0
     cmp eax, 0
     je .end_of_input    ; all out of tokens!
-       ; DEBUG "Finding...", [esp]
-       ;  push token_buffer
-       ;  CALLWORD print
-       ;  CALLWORD newline
-    push eax ; token addr for number (if find fails)
-    push eax ; token addr for find
+    push token_buffer   ; for find
     CALLWORD find       ; find token, returns tail addr
     pop eax        ; find's return value
-    pop ebx        ; the token addr for number
     cmp eax, 0     ; did find fail?
     je .try_number ; yes, try number, addr in ebx
     push eax       ; find successful, put result back
@@ -700,17 +744,9 @@ get_next_token:
     pop eax    ; get result
     cmp eax, 0 ; if NOT equal, word was RUNCOMP
     jne .exec_word ; yup, RUNCOMP
-       ; DEBUG "Inlining...", [esp]
-       ;  push token_buffer
-       ;  CALLWORD print
-       ;  CALLWORD newline
     CALLWORD inline ; nope, "compile" it.
     jmp get_next_token
 .exec_word:
-       ; DEBUG "Running...", [esp]
-       ;  push token_buffer
-       ;  CALLWORD print
-       ;  CALLWORD newline
     ; Run current word in immediate mode!
     ; We currently have the tail of a found word.
     pop ebx ; addr of word tail left on stack by 'find'
@@ -724,7 +760,7 @@ get_next_token:
     push 0 ; exit status
     CALLWORD exit
 .try_number:
-    push ebx ; put token address back on stack
+    push token_buffer ; token address for str2num
     CALLWORD str2num
     pop eax
     cmp eax, 0           ; did it fail?
