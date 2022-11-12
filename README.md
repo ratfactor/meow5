@@ -1,5 +1,7 @@
 # Meow5: "Meow. Meow. Meow. Meow. Meow."
 
+<img src="meow5cat.svg" alt="SVG meow5 kitty cat logo" align="right">
+
 This is a work in progress. Check the `log*.txt` files to
 see where I'm currently at! Also take a look at
 `design-notes.txt` for more ongoing thoughts (also kinda
@@ -7,6 +9,13 @@ functions as a vague todo/done list).
 
 Also note that this is Linux-only and is assembled with
 NASM.
+
+See also:
+
+* http://ratfactor.com/meow5/ - Meow5's page on the World Wide Web
+* http://ratfactor.com/assembly-nights2 - If you want to know what this is _really_ about
+
+Oh, and check out the "Progress" section in this README below.
 
 ## What is Meow5?
 
@@ -45,24 +54,26 @@ of the machine code that makes the word "meow". Crazy, right?
 
 ## Progress
 
-The proof of concept works!
+It can now execute a Hello world and the canonical `meow5`
+example! (All interpreter input is currently hard-coded in
+the assembly code, but taking live terminal input is "just"
+a matter of one syscall and changing the string source.)
 
-Proof of concept input string:
-
-```
-   : meow5 meow meow meow meow meow ;
-   meow5
-   newline
-   exit
-```
-
-Output:
 
 ```
-    Meow. Meow. Meow. Meow. Meow.
+> "Hello world!" print
+Hello world!
+
+> : meow "Meow. " print
+> meow
+Meow.
+
+> : meow5 meow meow meow meow meow ;
+Meow. Meow. Meow. Meow. Meow.
 ```
 
-Cool! Now it's time to add functionality.
+I'm currently adding string interpolation so numbers can be
+"formatted" into strings for printing, etc.
 
 
 ## Why?
