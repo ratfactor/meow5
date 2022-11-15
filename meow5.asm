@@ -190,10 +190,13 @@ section .text
 ; We start at 0 (null pointer) to indicate end of list.
 %define LAST_WORD_TAIL 0
 
-DEFWORD exit
+%macro EXIT_CODE 0
     pop ebx ; param1: exit code
     mov eax, SYS_EXIT
     int 0x80
+%endmacro
+DEFWORD exit
+    EXIT_CODE
 ENDWORD exit, "exit", (COMPILE | IMMEDIATE) 
 
 ; Gets length of null-terminated string
@@ -409,7 +412,7 @@ DEFWORD colon
     ; get name from next token and store it...
     EAT_SPACES_CODE
     GET_TOKEN_CODE
-    push token_buffer ; source
+    push token_buffer ; source <----- TODO: redundant???
     push name_buffer  ; dest
     COPYSTR_CODE      ; copy name into name_buffer
     ; copy the here pointer so we have the start address
@@ -523,41 +526,37 @@ ENDWORD num2str, "num2str", (IMMEDIATE | COMPILE)
 ; nothing. If it is, copy the string up to the endquote into
 ; the data_area and then return its address. Update free.
 DEFWORD quote
-    mov ebp, [input_buffer_pos]
-    mov al, [ebp]
+    mov esi, [input_buffer_pos] ; source
+    mov al, [esi]
     cmp al, '"'         ; next char a quote?
     jne .quote_done     ; nope, do nothing
-    inc ebp             ; yup, now move past it
-    mov ecx, 0          ; initialize input pos
-    mov ecx, 0          ; initialize destination pos
-    mov ebx, [free]     ; get string's new address
+    inc esi             ; yup, now move past it
+    mov edi, [free]     ; get string's new address
     mov edx, [here]          ; compile here
     mov byte [edx], 0x68     ; i386 opcode for PUSH imm32
-    mov dword [edx + 1], ebx ; address of string
+    mov dword [edx + 1], edi ; address of string
     add edx, 5               ; update here
     mov [here], edx          ; save it
-    jmp .copy_char
 .copy_char:
-    mov al, [ebp + ecx]
+    mov al, [esi]       ; get char from source
     cmp al, '"'         ; look for endquote
     je .end_quote
     cmp al, '\'         ; escape sequence
     je .insert_esc
     cmp al, '$'         ; numeric placeholder
     je .insert_num
-    mov [ebx + ecx], al ; copy character
-    inc ecx             ; next char
+    mov [edi], al         ; copy char to desination
+    inc esi             ; next source char
+    inc edi             ; next desination pos
     jmp .copy_char      ; loop
 
 
     ; WORK IN PROGRESS
     ; *****************************************
 .insert_esc:
-    ; First, move backward in the 
-    sub ebx, 1 ; don't advance the destination
     ; read the next character to determine what to do:
-    inc ecx
-    mov al, [ebp + ecx]
+    inc esi
+    mov al, [esi]
     cmp al, '\' ; we want a literal backslash
     ; ...
     ; *****************************************
@@ -570,44 +569,35 @@ DEFWORD quote
     ; num2str takes two things on the stack: the number to
     ; convert, and a destination address for writing the
     ; string. So we put our current write addr there.
-    ;
-    ; juggle!!!!
 
     pop eax ; get number to convert from stack...
 
-    push ebx ; preserve before num2str
-    push ecx
+    push edi ; preserve before num2str
     push edx
-    push ebp
+    push esi
 
     push eax     ; num2str: num to convert
-    mov eax, ebx ; copy destination addr
-    add eax, ecx ; add character count
-    push eax     ; num2str: destination address
+    push edi     ; num2str: destination address
     NUM2STR_CODE
     pop eax      ; chars written
 
     ; restore
-    pop ebp ; restore after num2str
+    pop esi ; restore after num2str
     pop edx
-    pop ecx
-    pop ebx
+    pop edi
 
     ; Now add bytes written to offset destination address.
     ; (The '$' placeholder took up 1 byte of space in the
     ; source string, but we may have written multple bytes
     ; in the destination string.)
-    ; So we add *one less* than the bytes written or we'll
-    ; end up with a null right after the number!
-    sub eax, 1
-    add ebx, eax
-    inc ecx         ; move past '$' or we'll be stuck!
+    add edi, eax
+    inc esi         ; move past '$' or we'll be stuck!
     jmp .copy_char  ; loop 
 .end_quote:
-    lea eax, [ebp + ecx + 1]    ; get next input position
+    lea eax, [esi + 1]          ; get next input position
     mov [input_buffer_pos], eax ; save it
-    mov [ebx + ecx], byte 0     ; terminate str null
-    lea eax, [ebx + ecx + 1]    ; calc next free space
+    mov [edi], byte 0             ; terminate str null
+    lea eax, [edi + 1]          ; calc next free space
     push dword [free]           ; leave string addr on stack
     mov [free], eax             ; save it
     EAT_SPACES_CODE             ; advance to next token
@@ -617,7 +607,7 @@ ENDWORD quote, 'quote', (IMMEDIATE | COMPILE)
 ; Attempts to parse num from string using radix.
 ; Doesn't handle negative sign. Leaves just 0
 ; (false) on stack if not successful.
-DEFWORD str2num ; (str_addr -- [num] success)
+%macro STR2NUM_CODE 0 ; (str_addr -- [num] success)
     pop ebp ; address of input token
     mov eax, 0 ; result
     mov ebx, 0 ; char conversion
@@ -665,6 +655,9 @@ DEFWORD str2num ; (str_addr -- [num] success)
     push eax       ; push number
     push 1         ; success (true)
 .str2num_done:
+%endmacro
+DEFWORD str2num ; (str_addr -- [num] success)
+    STR2NUM_CODE
 ENDWORD str2num, 'str2num', (IMMEDIATE | COMPILE)
 
 %macro RADIX_CODE 0
@@ -687,6 +680,58 @@ DEFWORD decimal
     mov dword [var_radix], 10
 ENDWORD decimal, 'decimal', (IMMEDIATE | COMPILE)
 
+; see if token starts with number. if it does, parse it
+%macro NUMBER_CODE 0
+    ; peek at the first character
+    mov esi, [input_buffer_pos] ; source
+    mov al, [esi]
+DEBUG "checking num, al:",eax 
+    cmp al, '0'
+    jl .number_done
+    cmp al, '9'
+    jg .number_done
+    ; Yup, the next token start with '9'-'9', so let's
+    ; parse it and push it to the stack.
+;    push token_buffer ; token address for str2num
+    GET_TOKEN_CODE
+    STR2NUM_CODE
+    pop eax
+    cmp eax, 0           ; did it fail?
+    je .invalid_number
+    cmp dword [mode], COMPILE
+    je .compile_number
+    ; We got number in IMMEDIATE mode, so just keep the
+    ; value on the stack and keep going!
+    jmp .number_done
+.compile_number:
+    ; note: number is still on stack
+    PRINTSTR 'TODO: a new compile number word?'
+    push 0 ; exit status (happy)
+    EXIT_CODE
+.invalid_number:
+    ; If we got here, there was a token that started with a
+    ; digit, but could not be parsed as a number. We're
+    ; defining that as a fatal error.
+    PRINTSTR 'Error parsing "'
+    push token_buffer
+    CALLWORD print
+    PRINTSTR '" as a number in '
+    cmp dword [mode], IMMEDIATE
+    je .immediate_numfail
+    PRINTSTR 'COMPILE'
+.immediate_numfail:
+    PRINTSTR 'IMMEDIATE'
+    jmp .finish_numfail
+.finish_numfail:
+    PRINTSTR ' mode.'
+    NEWLINE_CODE
+    EXIT_CODE
+.number_done:
+    CALLWORD eat_spaces ; skip whitespace
+%endmacro
+DEFWORD number
+    NUMBER_CODE
+ENDWORD number, 'number', (IMMEDIATE | COMPILE)
 
 ; ----------------------------------------------------------
 ; PROGRAM START!
@@ -724,18 +769,22 @@ _start:
 ; Interpreter!
 ; ----------------------------------------------------------
 get_next_token:
+    
+    ; See log for TODO notes
+
     CALLWORD eat_spaces ; skip whitespace
     CALLWORD quote      ; handle any string literals
+    CALLWORD number     ; handle any number literals
     CALLWORD get_token
     pop eax    ; get_token returns address or 0
     cmp eax, 0
     je .end_of_input    ; all out of tokens!
     push token_buffer   ; for find
     CALLWORD find       ; find token, returns tail addr
-    pop eax        ; find's return value
-    cmp eax, 0     ; did find fail?
-    je .try_number ; yes, try number, addr in ebx
-    push eax       ; find successful, put result back
+    pop eax             ; find's return value
+    cmp eax, 0          ; did find fail?
+    je .token_not_found ; yup
+    push eax ; find successful, put result back
     cmp dword [mode], IMMEDIATE
     je .exec_word
     ; We're in compile mode...
@@ -759,22 +808,6 @@ get_next_token:
     CALLWORD newline
     push 0 ; exit status
     CALLWORD exit
-.try_number:
-    push token_buffer ; token address for str2num
-    CALLWORD str2num
-    pop eax
-    cmp eax, 0           ; did it fail?
-    je .token_not_found  ; fail, not a valid number
-    cmp dword [mode], COMPILE
-    je .compile_number
-    ; We got number in IMMEDIATE mode, so just keep the
-    ; value on the stack and keep going!
-    jmp get_next_token
-.compile_number:
-    ; note: number is still on stack
-    PRINTSTR 'TODO: a new compile number word?'
-    push 0 ; exit status (happy)
-    CALLWORD exit
 .token_not_found:
     ; Putting strings together this way is quite painful...
     ; "Could not find word "foo" while looking in <mode> mode."
@@ -791,5 +824,3 @@ get_next_token:
 .finish_not_found:
     PRINTSTR ' mode.'
     NEWLINE_CODE
-    push 1 ; exit status (error)
-    CALLWORD exit

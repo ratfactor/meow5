@@ -353,3 +353,79 @@ The answer is 52 in octal.
     follow these guidelines, but new stuff definitely will
     and I'm going to immediately switch the 'quote' word to
     use the esi and edi registers!
+
+    Using esi and edi in the 'quote' word helped make the
+    usage much clearer and simplified some of the address
+    manipulation considerably (the source and destination
+    pointers aren't always moving in sync because escapes
+    and placeholders in the source string may expand to a
+    different number of characters in the destination
+    string.
+
+    Another thing that makes the interpreter so fragile is
+    the way I have to juggle registers and the stack around
+    to check for a valid numeric literal when an input token
+    doesn't match any of the exisitng words.
+
+    So what I'm thinking is that just like quote, I'll test
+    for tokens that start with a number and handle them
+    _before_ trying to find them in the dictionary.
+
+    Consequently, I won't be able to start any word or
+    variable names with a number. (Like Forth allows.)
+    In exchange, it should simplify the interpreter a fair
+    amount in some messy areas.
+
+        [ ] Break out 'number' into separate word that does
+            pre-check like 'quote'.
+
+    This will also give it a nice symetry with the way I'm
+    handling string literals (my first big departure from
+    pur Forth syntax).
+
+    Three sleepy nights later: Well, it works...but I've now
+    exposed another problem.
+
+    This is what the top of my interpreter loop looks like:
+
+        get_next_token:
+            CALLWORD eat_spaces ; skip whitespace
+            CALLWORD quote      ; handle any string literals
+            CALLWORD number     ; handle any number literals
+            CALLWORD get_token
+
+    It's nice and neat and readable. The problem is that it
+    doesn't work unless you have an optional quote followed
+    by an optional number followed by a non-string,
+    non-quote token.
+
+    Two strings in a row or a number followed by a string or
+    various other combos won't work.
+
+    Here's what needs to happen:
+
+        interpreter loop:
+            eat spaces
+            if quote
+                make string literal
+                restart interpreter loop
+            if number
+                make number literal
+                restart interpreter loop
+            if token
+                find/execute/compile
+                restart interpreter loop
+            else
+                error
+
+    So as much as I liked having 'quote' and 'number' handle
+    all aspects of those respective inputs, it's just making
+    everying too interdependant. I need to break them up
+    into even smaller words and give more control back to
+    the interpreter where it belongs.
+
+    So more refactoring awaits me before I can do the fun
+    stuff. Ah well, this is where the "slow and steady"
+    approach wins - I know I'll eventually push through this
+    kinda boring housekeeping stuff.
+
