@@ -527,9 +527,6 @@ ENDWORD num2str, "num2str", (IMMEDIATE | COMPILE)
 ; the data_area and then return its address. Update free.
 DEFWORD quote
     mov esi, [input_buffer_pos] ; source
-    mov al, [esi]
-    cmp al, '"'         ; next char a quote?
-    jne .quote_done     ; nope, do nothing
     inc esi             ; yup, now move past it
     mov edi, [free]     ; get string's new address
     mov edx, [here]          ; compile here
@@ -682,20 +679,9 @@ ENDWORD decimal, 'decimal', (IMMEDIATE | COMPILE)
 
 ; see if token starts with number. if it does, parse it
 %macro NUMBER_CODE 0
-    ; peek at the first character
-    mov esi, [input_buffer_pos] ; source
-    mov al, [esi]
-DEBUG "checking num, al:",eax 
-    cmp al, '0'
-    jl .number_done
-    cmp al, '9'
-    jg .number_done
-    ; Yup, the next token start with '9'-'9', so let's
-    ; parse it and push it to the stack.
-;    push token_buffer ; token address for str2num
     GET_TOKEN_CODE
     STR2NUM_CODE
-    pop eax
+    pop eax              ; return value from str2num
     cmp eax, 0           ; did it fail?
     je .invalid_number
     cmp dword [mode], COMPILE
@@ -727,7 +713,6 @@ DEBUG "checking num, al:",eax
     NEWLINE_CODE
     EXIT_CODE
 .number_done:
-    CALLWORD eat_spaces ; skip whitespace
 %endmacro
 DEFWORD number
     NUMBER_CODE
@@ -769,12 +754,24 @@ _start:
 ; Interpreter!
 ; ----------------------------------------------------------
 get_next_token:
-    
-    ; See log for TODO notes
-
     CALLWORD eat_spaces ; skip whitespace
-    CALLWORD quote      ; handle any string literals
+    ; In preparation to check for quotes and numbers, get
+    ; the first character from the input string.
+    mov esi, [input_buffer_pos] ; source
+    mov al, [esi]
+.try_quote:
+    cmp al, '"'         ; next char a quote?
+    jne .try_num        ; nope, continue
+    CALLWORD quote      ; yes, get string
+    jmp get_next_token
+.try_num:
+    cmp al, '0'
+    jl .try_token ; nope!
+    cmp al, '9'
+    jg .try_token ; nope!
     CALLWORD number     ; handle any number literals
+    jmp get_next_token
+.try_token:
     CALLWORD get_token
     pop eax    ; get_token returns address or 0
     cmp eax, 0
@@ -824,3 +821,4 @@ get_next_token:
 .finish_not_found:
     PRINTSTR ' mode.'
     NEWLINE_CODE
+    EXIT_CODE

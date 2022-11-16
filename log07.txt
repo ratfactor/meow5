@@ -429,3 +429,5 @@ The answer is 52 in octal.
     approach wins - I know I'll eventually push through this
     kinda boring housekeeping stuff.
 
+    Next night: Progress made on that refactor. Then there's
+    a segfault. So that's what I'll work on tomorrow night.
