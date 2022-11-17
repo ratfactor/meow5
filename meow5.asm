@@ -232,9 +232,9 @@ ENDWORD newline, "newline", (IMMEDIATE | COMPILE)
 
 ; Prints a null-terminated string by address on stack.
 %macro PRINT_CODE 0
-    pop eax            ; dup address for strlen
-    push eax
-    push eax
+    pop eax
+    push eax ; one for strlen
+    push eax ; one for write
     STRLEN_CODE        ; (after: straddr, len)
     mov ebx, STDOUT    ; write destination file
     pop edx            ; string address
@@ -427,7 +427,7 @@ DEFWORD return
     RETURN_CODE
 ENDWORD return, "return", (IMMEDIATE)
 
-; Does what ENDWORD macro does, but into memory
+; Does what ENDWORD macro does, but into memory at runtime.
 DEFWORD semicolon
     ; End of Machine Code
     ; 'here' currently points to the end of the new word's
@@ -529,11 +529,15 @@ DEFWORD quote
     mov esi, [input_buffer_pos] ; source
     inc esi             ; yup, now move past it
     mov edi, [free]     ; get string's new address
-    mov edx, [here]          ; compile here
-    mov byte [edx], 0x68     ; i386 opcode for PUSH imm32
-    mov dword [edx + 1], edi ; address of string
-    add edx, 5               ; update here
-    mov [here], edx          ; save it
+    ; If compile mode, compile the instruction to push the
+    ; string's address.
+    cmp dword [mode], COMPILE ; compile mode?
+    jne .copy_char            ; no, skip it
+    mov edx, [here]           ; yes, compile here
+    mov byte [edx], 0x68      ; i386 opcode for PUSH imm32
+    mov dword [edx + 1], edi  ; address of string
+    add edx, 5                ; update here
+    mov [here], edx           ; save it
 .copy_char:
     mov al, [esi]       ; get char from source
     cmp al, '"'         ; look for endquote
@@ -595,7 +599,10 @@ DEFWORD quote
     mov [input_buffer_pos], eax ; save it
     mov [edi], byte 0             ; terminate str null
     lea eax, [edi + 1]          ; calc next free space
-    push dword [free]           ; leave string addr on stack
+    cmp dword [mode], IMMEDIATE ; immediate mode?
+    jne .quote_skip_push        ; no, skip it
+    push dword [free]           ; yes, push string addr
+.quote_skip_push:
     mov [free], eax             ; save it
     EAT_SPACES_CODE             ; advance to next token
 .quote_done:

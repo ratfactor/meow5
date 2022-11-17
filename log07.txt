@@ -431,3 +431,73 @@ The answer is 52 in octal.
 
     Next night: Progress made on that refactor. Then there's
     a segfault. So that's what I'll work on tomorrow night.
+
+    Next night: Looks like the segfault is happening in old
+    code (specifically inline, but because of wrong
+    calculations in semicolon ";"). Since the old code won't
+    just start failing for no reason, this has to be due to
+    bad input from all the changes I've made in the outer
+    interpreter loop.
+
+    Hard to track down with GDB with breakpoints and watch
+    statements. So I added some print debugging and sure
+    enough:
+
+COLON here: 0804a290
+inlining print
+SEMICOLON there: 0804b2e6
+
+    That's the problem. 'colon' is trying to save the
+    machine code start address for 'meow' on the stack and
+    'semicolon' should be getting that same value, but it's
+    not. It's while executing this, by the way:
+
+        : meow "Meow." print ;
+
+    The botched semicolon tail writing is why trying to use
+    'meow' in 'meow5' fails - the calculations are wildly
+    wrong (it thinks the machine code length is -4144).
+
+    So I need to figure out where I'm leaving something on
+    the stack. But how?
+
+    Oh, I've got an idea, That wrong value from the stack
+    looks like an address. I'll fire up GDB and see what's at
+    that address. Maybe that will help.
+
+(gdb) x 0x0804b2e6
+0x804b2e6:	0x776f654d
+
+    Hmmm. Looks like a string?
+
+(gdb) x/s 0x0804b2e6
+0x804b2e6:	"Meow."
+
+    Aha! Interesting. It's the address from the string
+    literal before the print. What's that doing there? In
+    compile mode, 'quote' should be compiling that address
+    into the new word's machine code memory, not on the
+    stack.
+
+    Oh, right, I knew that would come back to haunt me. At
+    some point, my run/compile logic got lost (could be a
+    dozen commits ago by now). I'm currently compiling the
+    instruction to push the string's address *and* I'm also
+    actually pushing the string's address every single time.
+    So this has actually been broken for a while and my
+    refactoring has (almost?) nothing to do with it.
+
+    This is why I need a set of proper regression tests
+    ASAP. Well, I'll get there soon. Gotta be able to take
+    input before I can do that!
+
+    Anyway, time to add (back) some conditional jumps in
+    'quote'!
+
+The answer is 42.
+The answer is 0x2a in hex.
+The answer is 101010 in computer.
+The answer is 52 in octal.
+Meow.Meow.Meow.Meow.Meow.
+
+    Much better.
