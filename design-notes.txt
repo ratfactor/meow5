@@ -21,7 +21,7 @@ Display free memory and bytes compiled so far - on start up
 and/or on demand.
 
 ===========================================================
-get as quickly as possible to
+DONE: get as quickly as possible to
 
     : meow5 meow meow meow meow meow ;
 
@@ -127,6 +127,8 @@ I bet not many languages have *that* feature! (I don't
 know of any).
 
 ===========================================================
+Done? As long as we have free space for them, strings have a
+place in memory now...
 Challenge: Programs are built up by concatenating words
 togeher, so by definition, everything a top-level word needs
 is guaranteed to be contained in that word (if we wanted to

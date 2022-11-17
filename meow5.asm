@@ -42,10 +42,7 @@ section .data
 ; NOTE: This buffer will move to the BSS section when I
 ; start reading real input.
 input_buffer:
-    db '42 "The answer is $." print newline '
-    db 'decimal 42 hex "The answer is 0x$ in hex." print newline '
-    db 'decimal 42 bin "The answer is $ in computer." print newline '
-    db 'decimal 42 oct "The answer is $ in octal." print newline '
+    db '42 "I paid \$$ for beans\\cheese.\nOkay?\n" print '
     db ': meow "Meow." print ; '
     db ': meow5 meow meow meow meow meow ; '
     db 'meow5 '
@@ -550,18 +547,31 @@ DEFWORD quote
     inc esi             ; next source char
     inc edi             ; next desination pos
     jmp .copy_char      ; loop
-
-
-    ; WORK IN PROGRESS
-    ; *****************************************
 .insert_esc:
     ; read the next character to determine what to do:
     inc esi
     mov al, [esi]
-    cmp al, '\' ; we want a literal backslash
-    ; ...
-    ; *****************************************
-
+    cmp al, '\' ; literal backslash
+    jne .esc2
+        mov byte [edi], '\'
+        inc esi
+        inc edi
+        jmp .copy_char
+    .esc2:
+    cmp al, '$' ; literal $
+    jne .esc3
+        mov byte [edi], '$'
+        inc esi
+        inc edi
+        jmp .copy_char
+    .esc3:
+    cmp al, 'n' ; newline
+    jne .esc4
+        mov byte [edi], 0xa
+        inc esi
+        inc edi
+        jmp .copy_char
+    .esc4:
 .insert_num:
     ; We have been given a $ placeholder, so now we'll pop a
     ; value (4-byte number) off the stack and write it as a

@@ -501,3 +501,18 @@ The answer is 52 in octal.
 Meow.Meow.Meow.Meow.Meow.
 
     Much better.
+
+    And I was reminded that I had been in the middle of
+    adding escape sequences to string literals! Let's try
+    them out:
+
+        42 "I paid \$$ for beans\\cheese.\nOkay?\n" print
+
+$ mr
+I paid $42 for beans\cheese.
+Okay?
+
+    Wow, that was super satisfying.
+
+    Okay, I think *now* I'm finally ready to make those
+    introspective word-printing words!
