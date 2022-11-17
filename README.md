@@ -7,8 +7,21 @@ see where I'm currently at! Also take a look at
 `design-notes.txt` for more ongoing thoughts (also kinda
 functions as a vague todo/done list).
 
-Also note that this is Linux-only and is assembled with
-NASM.
+Currently works (input hard-coded, but otherwise legit):
+
+```
+> "Hello world!\n" print
+Hello world!
+
+> : meow "Meow. " print
+> meow
+Meow.
+
+> : meow5 meow meow meow meow meow ;
+Meow. Meow. Meow. Meow. Meow.
+```
+
+Note that this is Linux-only and is assembled with NASM.
 
 See also:
 
@@ -49,31 +62,6 @@ notation and nomenclature, the following word "meow5"...:
 
 ...will be literally composed of five copies
 of the machine code that makes the word "meow". Crazy, right?
-
-(As you can see in my update below, this works!)
-
-## Progress
-
-It can now execute a Hello world and the canonical `meow5`
-example! (All interpreter input is currently hard-coded in
-the assembly code, but taking live terminal input is "just"
-a matter of one syscall and changing the string source.)
-
-
-```
-> "Hello world!" print
-Hello world!
-
-> : meow "Meow. " print
-> meow
-Meow.
-
-> : meow5 meow meow meow meow meow ;
-Meow. Meow. Meow. Meow. Meow.
-```
-
-I'm currently adding string interpolation so numbers can be
-"formatted" into strings for printing, etc.
 
 
 ## Why?
