@@ -42,12 +42,12 @@ section .data
 ; NOTE: This buffer will move to the BSS section when I
 ; start reading real input.
 input_buffer:
-    db '42 "I paid \$$ for beans\\cheese.\nOkay?\n" print '
-    db ': meow "Meow." print ; '
+    db ': meow "Meow. " print ; '
     db ': meow5 meow meow meow meow meow ; '
     db 'meow5 '
     db 'newline '
-    db 'bin 11111111 exit',0
+    db 'inspect_all '
+    db 0
 
 ; ----------------------------------------------------------
 ; MACROS!
@@ -200,12 +200,12 @@ ENDWORD exit, "exit", (COMPILE | IMMEDIATE)
 %macro STRLEN_CODE 0
     pop eax
     mov ecx, 0     ; byte counter will contain len
-.find_null:
+%%find_null:
     cmp byte [eax + ecx], 0 ; null term?
-    je .strlen_done         ; yes, done
+    je %%strlen_done         ; yes, done
     inc ecx                 ; no, continue
-    jmp .find_null          ; loop
-.strlen_done:
+    jmp %%find_null         ; loop
+%%strlen_done:
     push ecx           ; return len
 %endmacro
 DEFWORD strlen ; (straddr) strlen (straddr len)
@@ -705,7 +705,7 @@ ENDWORD decimal, 'decimal', (IMMEDIATE | COMPILE)
     je .compile_number
     ; We got number in IMMEDIATE mode, so just keep the
     ; value on the stack and keep going!
-    jmp .number_done
+    jmp %%done
 .compile_number:
     ; note: number is still on stack
     PRINTSTR 'TODO: a new compile number word?'
@@ -718,22 +718,107 @@ ENDWORD decimal, 'decimal', (IMMEDIATE | COMPILE)
     PRINTSTR 'Error parsing "'
     push token_buffer
     CALLWORD print
-    PRINTSTR '" as a number in '
-    cmp dword [mode], IMMEDIATE
-    je .immediate_numfail
-    PRINTSTR 'COMPILE'
-.immediate_numfail:
-    PRINTSTR 'IMMEDIATE'
-    jmp .finish_numfail
-.finish_numfail:
-    PRINTSTR ' mode.'
+    PRINTSTR '" as a number.'
     NEWLINE_CODE
     EXIT_CODE
-.number_done:
+%%done:
 %endmacro
 DEFWORD number
     NUMBER_CODE
 ENDWORD number, 'number', (IMMEDIATE | COMPILE)
+
+; Call with num to to be printed on the stack
+%macro PRINTNUM_CODE 0
+    ; param2 address desination for number str
+    mov eax, [free] ; use free space temporarily
+    push eax
+    NUM2STR_CODE
+    pop ebx ; chars written
+    pop esi ; get preserved
+    ; null-terminate the number string!
+    mov eax, [free]
+    add eax, ebx
+    mov eax, 0
+    ; print the number
+    mov eax, [free]
+    push eax
+    PRINT_CODE
+%endmacro
+DEFWORD printnum
+    PRINTNUM_CODE
+ENDWORD printnum, 'printnum', (IMMEDIATE | COMPILE)
+
+; Given a mode (dword) on the stack, prints the matching
+; modes (immediate/compile/runcomp).
+; Future: supply a separator string?
+%macro PRINTMODE_CODE 0
+    pop eax ; get mode dword
+    cmp eax, IMMEDIATE
+    jne %%try_compile
+    push eax ; save
+    PRINTSTR 'IMMEDIATE'
+    pop eax ; restore
+%%try_compile:
+    cmp eax, COMPILE
+    jne %%try_runcomp
+    push eax ; save
+    PRINTSTR 'COMPILE'
+    pop eax ; restore
+%%try_runcomp:
+    cmp eax, RUNCOMP
+    jne %%done
+    push eax ; save
+    PRINTSTR 'RUNCOMP'
+    pop eax ; restore
+%%done:
+%endmacro
+DEFWORD printmode
+    PRINTMODE_CODE
+ENDWORD printmode, 'printmode', (IMMEDIATE | COMPILE)
+
+; Takes word tail addr, prints meta-info (from tail)
+
+%macro INSPECT_CODE 0
+    pop esi ; get tail addr
+    lea eax, [esi + T_NAME]
+    push eax
+    PRINT_CODE 
+    PRINTSTR ": "
+    mov eax, [esi + T_CODE_LEN]
+    push esi ; preserve tail addr
+    ; param 1: num to be stringified
+    push eax
+    PRINTNUM_CODE
+    PRINTSTR " bytes "
+    mov eax, [esi + T_FLAGS] ; push mode flags
+    PRINTMODE_CODE
+    NEWLINE_CODE
+%endmacro
+DEFWORD inspect
+    INSPECT_CODE
+ENDWORD inspect, 'inspect', (IMMEDIATE)
+
+; inspects everything in reverse order, starting with the
+; last thing defined (because that's how the linked list
+; works).
+DEFWORD inspect_all
+    mov eax, [last]
+.inspect_loop:
+    mov ebx, [eax]
+    push ebx ; save next addr pointer
+    push eax ; inspect this one
+    INSPECT_CODE
+
+
+; TODO: something has left the token str addr on the stack
+; and it's getting in the way of popping the link addr?
+
+
+    pop eax
+    cmp eax, 0        ; done?
+    jne .inspect_loop ; nope, keep going!
+ENDWORD inspect_all, 'inspect_all', (IMMEDIATE)
+
 
 ; ----------------------------------------------------------
 ; PROGRAM START!
@@ -829,13 +914,9 @@ get_next_token:
     push token_buffer
     CALLWORD print
     PRINTSTR '" while looking in '
-    cmp dword [mode], IMMEDIATE
-    je .immediate_not_found
-    PRINTSTR 'COMPILE'
-    jmp .finish_not_found
-.immediate_not_found:
-    PRINTSTR 'IMMEDIATE'
-.finish_not_found:
+    mov eax, [mode]
+    push eax
+    PRINTMODE_CODE
     PRINTSTR ' mode.'
     NEWLINE_CODE
     EXIT_CODE

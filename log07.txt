@@ -516,3 +516,97 @@ Okay?
 
     Okay, I think *now* I'm finally ready to make those
     introspective word-printing words!
+
+    Next night: Uh, so I didn't think far enough ahead. I
+    made some really nice string making and printing
+    facilities, but I can't use them easily from assembly.
+    Nor can I define something as complex as a "dictionary"
+    printing word (to use the Forth term for all the defined
+    words.)
+
+    Hmmm... this is a quandary.
+
+    Okay, it wasn't so bad. I just needed to write an
+    additional word 'printnum' (with macro PRINTNUM_CODE) to
+    help it out.
+
+    After that, this is all it takes to write an 'inspect'
+    that takes a word tail address and prints the word name
+    and bytes of machine code (from the tail metadata):
+
+        DEFWORD inspect
+            pop esi ; get tail addr
+            lea eax, [esi + T_NAME]
+            push eax
+            PRINT_CODE 
+            PRINTSTR ": "
+            mov eax, [esi + T_CODE_LEN]
+            push esi ; preserve tail addr
+            ; param 1: num to be stringified
+            push eax
+            PRINTNUM_CODE
+            PRINTSTR " bytes "
+            NEWLINE_CODE
+        ENDWORD inspect, 'inspect', (IMMEDIATE)
+
+
+    Here it is printing the word 'find':
+
+        "find" find inspect
+
+find: 58 bytes
+
+    Neat!
+
+    Oh, and I guess I can show my new 'printnum' in
+    standalone action:
+
+        bin 11101111 hex printnum
+
+ef
+
+    Nice.
+
+  +--------------------------------------------------------+
+  |                                                        |
+  |  Just so it's clear I'm not trying to trick anybody,   |
+  |  the interpreter input is still hard-coded into        |
+  |  memory, so that calling line really looks like this   |
+  |  in assembly:                                          |
+  |                                                        |
+  |      db 'bin 11101111 hex printnum '                   |
+  |                                                        |
+  |  I'm just trying to make the log readable, so I leave  |
+  |  off the 'db' and quotes.                              |
+  |                                                        |
+  |  I'll take input on STDIN very soon (next!).           |
+  |                                                        |
+  +--------------------------------------------------------+
+
+    And now I can find out how big a "meow" printing
+    function is in machine code (minus the "Meow." string
+    itself, because that's stored elsewhere. And also the
+    combined five meows:
+
+        "meow" find inspect
+        "meow5" find inspect
+
+meow: 38 bytes
+meow5: 190 bytes
+
+    There we go. So even repeating the entire printing
+    routine five times is still under 200 bytes of machine
+    code. When's the last time you shed a tear over 200
+    bytes?
+
+    Okay, now I just need a loop to call inspect for every
+    defined word and I'm all set.
+
+    I'm not sure I want to use the term "dictionary" from
+    Forth (or "word", for that matter). Hmm, I guess I can
+    avoid the issue by just calling it 'inspect_all'...
+
+    Almost there on inspect_all:
+
+    ; TODO: something has left the token str addr on the stack
+    ; and it's getting in the way of popping the link addr?
