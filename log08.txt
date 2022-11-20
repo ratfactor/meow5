@@ -1,0 +1,27 @@
+    Well, I think the next thing to do is make the
+    interpreter take input from STDIN. With that, I'll be
+    able to not only play with it interactively, but also
+    redirect and pipe instructions into it, which will mean
+    being able to have some regression tests as well.
+
+        [ ] Get input string from 'read' syscall
+        [ ] Add some testing
+
+    Testing is one of those things that a lot of people have
+    strong opinions about. But I absolutely love having a
+    reasonable number of tests in place to let me know that
+    I haven't broken something. Tests let me be _more_
+    creative and _more_ brave with the code because I can
+    try something and know right away whether or not it
+    works.
+
+    I have come to _loathe_ manual testing because I've been
+    in the Web dev world forever and testing on the web
+    SUCKS. In a lot of cases, the state of the art is still
+    refreshing a browser and clicking through a bunch of
+    pages. When you're used to that, it is a _delight_ to be
+    able to easily set up some STDIN/STDOUT tests on a
+    command line!!!
+
+    Okay, that's more than enough about that. It's time to
+    get real input!

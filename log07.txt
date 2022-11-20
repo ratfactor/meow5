@@ -606,7 +606,210 @@ meow5: 190 bytes
     Forth (or "word", for that matter). Hmm, I guess I can
     avoid the issue by just calling it 'inspect_all'...
 
-    Almost there on inspect_all:
+    Almost there on inspect_all.  It seems something has
+    left the token str addr on the stack and it's getting in
+    the way of popping the link addr and ruining everything.
+    At least, that's what it looks like.
 
-    ; TODO: something has left the token str addr on the stack
-    ; and it's getting in the way of popping the link addr?
+    Next night: So what I woke up thinking in the morning is
+    that if I'm not maintaining my stack correctly between
+    words, there are three ways I could debug this:
+
+    1. Painfully, with GDB stepping through...a lot.
+
+    2. Write a DEBUG_STACK macro that non-destructively
+       prints the values on the stack from anywhere within
+       the assembly.
+
+    3. Write a script (perhaps in awk?) that checks the
+       push/pop balance by following all of the called or
+       inlined code and incrementing a counter for each push
+       and decrementing for each pop.
+
+    Obviously I'm trying to avoid Option 1.
+
+    Option 3 sounds neat, but I'm not sure how to *display*
+    that information so that it helps me track down the
+    problem - some words push more than they pop and
+    vice-versa. It'd still be a lot of manual checking.
+
+    Option 2 seems generally useful anyway, so I'm going to
+    give that a shot and hope that peppering it about the
+    program will help me figure out what's going on.
+
+    Hmmm...well, printing the stack at the Meow5 language
+    level is no problem, but printing it at the assembly
+    level is a big problem. I've got a chicken-and-egg
+    problem where I need to preserve the registers it uses
+    AND preserve the stack.
+
+    I could preserve the registers in a purpose-built bit of
+    memory.
+
+    Well, I think I did that right. Here's the whole ugly
+    thing:
+
+        section .bss
+            ds_eax: resb 4
+            ds_ebx: resb 4
+            ds_ecx: resb 4
+            ds_edx: resb 4
+            ds_esi: resb 4
+            ds_edi: resb 4
+        section .text
+        %macro DEBUG_STACK 0
+            mov [ds_eax], eax
+            mov [ds_ebx], ebx
+            mov [ds_ecx], ecx
+            mov [ds_edx], edx
+            mov [ds_esi], esi
+            mov [ds_edi], edi
+            PRINTSTR "Stack: "
+            PRINTSTACK_CODE
+            NEWLINE_CODE
+            mov eax, [ds_eax]
+            mov ebx, [ds_ebx]
+            mov ecx, [ds_ecx]
+            mov edx, [ds_edx]
+            mov esi, [ds_esi]
+            mov edi, [ds_edi]
+        %endmacro
+
+    But talk about chicken-and-egg problem. Or is it more
+    of a "who watches the watchmen?" thing? Or maybe there's
+    an even better expression for it, but my problem is that
+    I think I'm acutally calling whatever is doing bad stack
+    things WHILE trying to print the stack... :-(
+
+    Okay, it's worse than even that. I don't know how I've
+    gotten away with it this long, but I've been using a
+    bunch of words mid-assembly to debug stuff...and a lot
+    of them aren't safe for that (like 'newline') because
+    they don't preserve the registers. 
+
+    So it's possible that by trying to observe what's going
+    on for the 'inspect_all' feature, I've been ruining it!
+
+    I have to remember that most of my words are only safe
+    if I'm treating them as if they're being called from the
+    language - transfering values on the stack and not
+    giving a hoot what happens to the registers in between!
+
+    Okay, I think I got it. No idea how this got here, but
+    I had an extra pop for no reason I could understand in
+    'printnum'! I have no idea how it got there, but that
+    would definitely mess things up:
+
+        pop esi ; get preserved <-----??????
+
+    I think the lesson is to test all new words more
+    thoroughly before moving on!
+
+    Okay, can we _finally_ see the output of 'inspect_all'?
+
+$ mr
+Meow. Meow. Meow. Meow. Meow. 
+meow5: 190 bytes IMMEDIATE COMPILE 
+meow: 38 bytes IMMEDIATE COMPILE 
+inspect_all: 359 bytes IMMEDIATE 
+inspect: 340 bytes IMMEDIATE 
+ps: 177 bytes IMMEDIATE COMPILE 
+printmode: 100 bytes IMMEDIATE COMPILE 
+printnum: 116 bytes IMMEDIATE COMPILE 
+number: 306 bytes IMMEDIATE COMPILE 
+decimal: 10 bytes IMMEDIATE COMPILE 
+bin: 10 bytes IMMEDIATE COMPILE 
+oct: 10 bytes IMMEDIATE COMPILE 
+hex: 10 bytes IMMEDIATE COMPILE 
+radix: 6 bytes IMMEDIATE COMPILE 
+str2num: 95 bytes IMMEDIATE COMPILE 
+quote: 247 bytes IMMEDIATE COMPILE 
+num2str: 58 bytes IMMEDIATE COMPILE 
+;: 150 bytes COMPILE RUNCOMP 
+return: 7 bytes IMMEDIATE 
+:: 137 bytes IMMEDIATE 
+copystr: 18 bytes IMMEDIATE COMPILE 
+get_token: 55 bytes IMMEDIATE 
+eat_spaces: 38 bytes IMMEDIATE COMPILE 
+find: 58 bytes IMMEDIATE 
+is_runcomp: 5 bytes IMMEDIATE COMPILE 
+get_flags: 7 bytes IMMEDIATE COMPILE 
+inline: 25 bytes IMMEDIATE 
+print: 33 bytes IMMEDIATE COMPILE 
+newline: 26 bytes IMMEDIATE COMPILE 
+strlen: 16 bytes IMMEDIATE COMPILE 
+exit: 8 bytes IMMEDIATE COMPILE 
+Goodbye.
+Exit status: 0
+
+    Yay! At last! Every word in the system with the number
+    of bytes of machine code and mode(s).
+
+    And with the help of the shell, we can sort by size.
+
+$ ./meow5 |  awk '
+        /^.*: [0-9]+/ {t=t+$2; print $2, $1}
+        END{print "Total bytes:", t}
+  ' | sort -n
+
+5 is_runcomp:
+6 radix:
+7 get_flags:
+7 return:
+8 exit:
+10 bin:
+10 decimal:
+10 hex:
+10 oct:
+16 strlen:
+18 copystr:
+25 inline:
+26 newline:
+33 print:
+38 eat_spaces:
+38 meow:
+55 get_token:
+58 find:
+58 num2str:
+95 str2num:
+100 printmode:
+116 printnum:
+137 ::
+150 ;:
+177 ps:
+190 meow5:
+247 quote:
+306 number:
+340 inspect:
+359 inspect_all:
+
+Total bytes: 2655
+
+    (Command line formatted for semi-readability and total
+    bytes separated out for clarity.)
+
+    So the smallest word is 'is_runcomp', which tests for
+    the RUNCOMP flag in a mode and pushes the result.
+
+    The largest word is not a surprise to me, 'inspect_all',
+    which contains 'inspect' and puts a loop around it. In
+    turn, 'inspect' includes a bunch of string and number
+    printing code.
+
+    So let's see how I did:
+
+        [x] Pretty-print meta info about word!
+        [ ] Loop through dictionary, list all names
+        [x] Loop through dictionary, pretty-print all
+        [x] New word: str2num (ascii to integer)
+        [x] New word: num2str (integer to ascii)
+        [x] Add "$" placeholders so the 'quote' word so it
+            can interpolate numbers from the stack into the
+            string.
+        [x] Break out 'number' into separate word that does
+            pre-check like 'quote'.
+
+    I forgot about a loop that just prints all the word
+    names. And 'number' works a little differently now than
+    I'd envisioned. But I'm gonna call this part done for
+    now and close out this log file.

@@ -23,6 +23,7 @@ var_radix: resb 4       ; decimal=10, hex=16, etc.
 last: resb 4            ; Pointer to last defined word tail
 here: resb 4            ; Will point to compile_area
 free: resb 4            ; Will point to data_area
+stack_start: resb 4     ; Will point to "bottom" of stack
 token_buffer: resb 32   ; For get_token
 name_buffer:  resb 32   ; For colon (copy of token)
 compile_area: resb 4096 ; We inline ("compile") here!
@@ -42,6 +43,9 @@ section .data
 ; NOTE: This buffer will move to the BSS section when I
 ; start reading real input.
 input_buffer:
+;    db 'ps newline '
+;    db '42 ps newline '
+;    db '17 18 ps newline '
     db ': meow "Meow. " print ; '
     db ': meow5 meow meow meow meow meow ; '
     db 'meow5 '
@@ -63,23 +67,14 @@ input_buffer:
         %%mystr: db %1
     ; now the executable part
     section .text
-        ; First, make this safe to plop absolutely anywhere
-        ; by pushing the 4 registers used.
-        push eax ;A
-        push ebx ;B
-        push ecx ;C
-        push edx ;D
+        pusha ; preserve all registers
         ; Print the string
         mov ebx, STDOUT
         mov edx, mystr_len
         mov ecx, %%mystr
         mov eax, SYS_WRITE
         int 0x80
-        ; Restore all registers. (Reverse order)
-        pop edx ;D
-        pop ecx ;C
-        pop ebx ;B
-        pop eax ;A
+        popa ; restore all registers
 %endmacro ; DEBUG print
 
 %macro DEBUG 2
@@ -234,8 +229,8 @@ ENDWORD newline, "newline", (IMMEDIATE | COMPILE)
     push eax ; one for write
     STRLEN_CODE        ; (after: straddr, len)
     mov ebx, STDOUT    ; write destination file
-    pop edx            ; string address
-    pop ecx            ; strlen
+    pop edx            ; strlen
+    pop ecx            ; string address
     mov eax, SYS_WRITE ; syscall
     int 0x80           ; interrupt to linux!
 %endmacro
@@ -491,28 +486,28 @@ ENDWORD semicolon, ";", (COMPILE | RUNCOMP)
     pop eax ; number
     mov ecx, 0 ; counter of digit characters
     mov ebx, [var_radix]
-.divide_next:    ; idiv divides
+%%divide_next:    ; idiv divides
     mov edx, 0   ; div actually divides edx:eax / ebx!
     div ebx      ; eax / ebx = eax, remainder in edx
     cmp edx, 9   ; digit bigger than 9? (radix allows a-z)
-    jg .toalpha  ; yes, convert to 'a'-'z'
+    jg %%toalpha  ; yes, convert to 'a'-'z'
     add edx, '0' ; no, convert to '0'-'9'
-    jmp .store_char
-.toalpha:
+    jmp %%store_char
+%%toalpha:
     add edx, ('a'-10) ; to convert 10 to 'a'
-.store_char:
+%%store_char:
     push edx ; put on stack (pop later to reverse order)
     inc ecx
     cmp eax, 0        ; are we done converting?
-    jne .divide_next  ; no, loop
+    jne %%divide_next  ; no, loop
     mov eax, ecx      ; yes, store counter as return value
     mov ecx, 0        ; now we'll count up
-.store_next:
+%%store_next:
     pop edx  ; popping to reverse order
     mov [ebp + ecx], edx  ; store it at addr!
     inc ecx
     cmp ecx, eax      ; are we done storing?
-    jl .store_next
+    jl %%store_next
     push eax  ; return num chars written
 %endmacro
 DEFWORD num2str ; (num addr -- bytes_written)
@@ -734,7 +729,7 @@ ENDWORD number, 'number', (IMMEDIATE | COMPILE)
     push eax
     NUM2STR_CODE
     pop ebx ; chars written
-    pop esi ; get preserved
+;    pop esi ; get preserved <-----??????
     ; null-terminate the number string!
     mov eax, [free]
     add eax, ebx
@@ -750,25 +745,27 @@ ENDWORD printnum, 'printnum', (IMMEDIATE | COMPILE)
 
 ; Given a mode (dword) on the stack, prints the matching
 ; modes (immediate/compile/runcomp).
-; Future: supply a separator string?
 %macro PRINTMODE_CODE 0
     pop eax ; get mode dword
-    cmp eax, IMMEDIATE
-    jne %%try_compile
+    mov ebx, eax
+    and ebx, IMMEDIATE
+    jz %%try_compile
     push eax ; save
-    PRINTSTR 'IMMEDIATE'
+    PRINTSTR 'IMMEDIATE '
     pop eax ; restore
 %%try_compile:
-    cmp eax, COMPILE
-    jne %%try_runcomp
+    mov ebx, eax
+    and ebx, COMPILE
+    jz %%try_runcomp
     push eax ; save
-    PRINTSTR 'COMPILE'
+    PRINTSTR 'COMPILE '
     pop eax ; restore
 %%try_runcomp:
-    cmp eax, RUNCOMP
-    jne %%done
+    mov ebx, eax
+    and ebx, RUNCOMP
+    jz %%done
     push eax ; save
-    PRINTSTR 'RUNCOMP'
+    PRINTSTR 'RUNCOMP '
     pop eax ; restore
 %%done:
 %endmacro
@@ -776,21 +773,47 @@ DEFWORD printmode
     PRINTMODE_CODE
 ENDWORD printmode, 'printmode', (IMMEDIATE | COMPILE)
 
-; Takes word tail addr, prints meta-info (from tail)
+%macro PRINTSTACK_CODE 0
+    mov esi, [stack_start]
+    mov ecx, 0
+%%dword_loop:
+    lea eax, [esi + ecx]
+    cmp eax, esp         ; are we done? (hit stack pointer)
+    jl %%done            ; yes
+    mov eax, [eax]       ; no, print this value
+    push esi ; preserve
+    push ecx ; preserve
+    push eax ; print this value
+    PRINTNUM_CODE
+    PRINTSTR " "
+    pop ecx  ; restore
+    pop esi  ; restore
+    add ecx, 4 ; go "backward" a dword on stack
+    jmp %%dword_loop
+%%done:
+%endmacro
+DEFWORD printstack
+    PRINTSTACK_CODE
+ENDWORD printstack, 'ps', (IMMEDIATE | COMPILE)
 
+; Takes word tail addr, prints meta-info (from tail)
 %macro INSPECT_CODE 0
     pop esi ; get tail addr
     lea eax, [esi + T_NAME]
+    push esi ; preserve tail
     push eax
     PRINT_CODE 
     PRINTSTR ": "
+    pop esi ; restore tail
     mov eax, [esi + T_CODE_LEN]
-    push esi ; preserve tail addr
+    push esi ; preserve tail
     ; param 1: num to be stringified
     push eax
     PRINTNUM_CODE
     PRINTSTR " bytes "
-    mov eax, [esi + T_FLAGS] ; push mode flags
+    pop esi ; restore tail
+    mov eax, [esi + T_FLAGS]
+    push eax
     PRINTMODE_CODE
     NEWLINE_CODE
 %endmacro
@@ -802,19 +825,13 @@ ENDWORD inspect, 'inspect', (IMMEDIATE)
 ; last thing defined (because that's how the linked list
 ; works).
 DEFWORD inspect_all
-    mov eax, [last]
+    mov eax, [last] ; tail addr of last word defined
 .inspect_loop:
-    mov ebx, [eax]
+    mov ebx, [eax]  ; tail of prev word in linked list
     push ebx ; save next addr pointer
     push eax ; inspect this one
     INSPECT_CODE
-
-
-; TODO: something has left the token str addr on the stack
-; and it's getting in the way of popping the link addr?
-
-
-    pop eax
+    pop eax  ; get saved next addr pointer
     cmp eax, 0        ; done?
     jne .inspect_loop ; nope, keep going!
 ENDWORD inspect_all, 'inspect_all', (IMMEDIATE)
@@ -838,6 +855,10 @@ _start:
     ; Free points to the next free space in the data area
     ; where all variables and non-stack data goes.
     mov dword [free], data_area
+
+    ; Store the "start" (or "bottom") so we can reference it
+    ; later (such as printing contents of stack).
+    mov dword [stack_start], esp
 
     ; Store last tail for dictionary searches (note that
 	; find just happens to be the last word defined in the
@@ -864,14 +885,14 @@ get_next_token:
 .try_quote:
     cmp al, '"'         ; next char a quote?
     jne .try_num        ; nope, continue
-    CALLWORD quote      ; yes, get string
+    CALLWORD quote      ; yes, get string, leaves addr
     jmp get_next_token
 .try_num:
     cmp al, '0'
     jl .try_token ; nope!
     cmp al, '9'
     jg .try_token ; nope!
-    CALLWORD number     ; handle any number literals
+    CALLWORD number     ; parse number, leaves value
     jmp get_next_token
 .try_token:
     CALLWORD get_token
