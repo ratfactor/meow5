@@ -25,3 +25,167 @@
 
     Okay, that's more than enough about that. It's time to
     get real input!
+
+    Right off the bat, I know I'm going to need to handle
+    this in three places:
+
+        * get_token
+        * eat_spaces
+        * quote
+
+    On the plus side, I'm happy with my input functionality
+    (especially the string literals) and I don't regret
+    how they've turned out. But now's when I have to pay the
+    price for four separate methods that read input.
+
+    This is definitely going to test my resolve to stick
+    with the "inline all the things" redundant code. But I
+    don't think "get_input" or whatever I end up calling it
+    will be very long. Might even be under 100 bytes. So
+    three copies shouldn't be too bad. :-)
+
+    (When I wrote the above paragraphs, I thought I was
+    going to have up to six copies, but I kept realizing
+    that most of those places weren't actually reading a
+    whole stream of input - they were relying on one of
+    these three to do it.)
+
+    Okay, stripped of comments, this is get_input:
+
+            mov ebx, [input_file]
+            mov ecx, input_buffer
+            mov edx, INPUT_SIZE
+            mov eax, SYS_READ
+            int 0x80
+            cmp eax, INPUT_SIZE
+            jge %%done
+            mov byte [input_buffer + eax], 0
+        %%done:
+            mov dword [input_buffer_pos], input_buffer
+
+    It's tiny - just the Linux 'read' syscall to get more
+    input into the input_buffer. The only interesting thing
+    is that if we read more than an entire buffer's worth,
+    it null-terminates the string.
+
+    Now I gotta use it in (at least?) three places. Two of
+    them also needed to be updated now that I understand
+    what the esi and edi registers are for, ha ha. Anyway,
+    here's a typical example from 'eat_spaces':
+
+        cmp esi, input_buffer_end ; need to get more input?
+        jl .continue    ; no, keep going
+        GET_INPUT_CODE  ; yes, get some
+        jmp .reset      ; got more input, reset and continue
+
+    I kept simplifying until I got down to those four lines.
+
+    But does it work? Just a couple dumb mistakes and
+    then...
+
+$  mr
+hello
+Could not find word "hello" while looking in IMMEDIATE  mode.
+Exit status: 1
+
+    Wow! I don't know why I typed "hello" as my first live
+    input into this thing. But it totally worked. Ha ha, I
+    probably don't need an unfound word to be a fatal error
+    anymore. :-)
+
+    How about something that *will* work:
+
+$ mr
+"Hello world!\n" print
+Hello world!
+Goodbye.
+Exit status: 0
+
+    Yay! My first live "Hello world" in this interpreter!
+
+    I'm still exiting after one line of input. I'll have to
+    figure that out. Do I read until an actual EOF character
+    is encountered? I can't remember. I'm just super excited
+    this works!
+
+    So after all that hand-wringing about having a couple
+    copies of this code, how much impact has that actually
+    had?
+
+    Here's the relevant bits from 'inspect_all':
+
+get_input: 45 bytes IMMEDIATE COMPILE
+get_token: 108 bytes IMMEDIATE
+eat_spaces: 80 bytes IMMEDIATE COMPILE
+quote: 348 bytes IMMEDIATE COMPILE
+
+    Let's compare with the previous log07.txt results:
+
+get_token: 55 bytes IMMEDIATE 
+eat_spaces: 38 bytes IMMEDIATE COMPILE 
+quote: 247 bytes IMMEDIATE COMPILE 
+
+    Since I cleaned up some of the words, there wasn't an
+    across-the board increase of 45 * 3 bytes.
+
+    I'd like to see what the grand total has become. And
+    I'll probably want to do that often. So I'll make a new
+    option in my build.sh script:
+
+  if [[ $1 == 'bytes' ]]
+  then
+      AWK='/^.*: [0-9]+/ {t=t+$2} END{print "Total bytes:", t}'
+      echo 'inspect_all' | ./$F | awk -e "$AWK"
+      exit
+  fi
+
+    Okay, let's see the damage:
+
+$ ./build.sh bytes
+Total bytes: 2816
+
+    The last run in log07.txt was 2655 bytes, so the
+    difference is:
+
+        2816   (current)
+      - 2655   (previous)
+      ------
+         161
+
+    Ha ha, only 161 bytes difference, and since one of the
+    three copies is needed, I only gained 116 bytes of
+    "bloat". I think I can live with that on the x86
+    platform. :-)
+
+    Now I gotta figure out how to continue reading after one
+    line of input.
+
+    Oh, wait! One last thing. I had also set the input
+    buffer to an artificially tiny size so I could make sure
+    it was being refilled as needed. I'll add a DEBUG
+    statement to see where that's happening.
+
+    The buffer size is 16 bytes.
+
+$ mr
+GET_INPUT00000000
+"This is a jolly long string to make sure we read plenty into input buffer a couple times.\n" print
+GET_INPUT00000000
+GET_INPUT00000000
+GET_INPUT00000000
+GET_INPUT00000000
+GET_INPUT00000000
+GET_INPUT00000000
+This is a jolly long string to make sure we read plenty into input buffer a couple times.
+Goodbye.
+Exit status: 0
+
+    Okay, perfect, that long line of input required 7 calls
+    to 'get_input' to refill the input_buffer. Now I'll set
+    it to a reasonable size. I've seen some conflicting
+    stuff online, so I'll just take the coward's way out:
+
+        %assign INPUT_SIZE 1024 ; size of input buffer
+
+    Now to figure out how to keep reading after the first
+    line (or token?) of input...

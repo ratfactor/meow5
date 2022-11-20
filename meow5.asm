@@ -2,17 +2,19 @@
 ; |       >o.o<   Meow5: A very conCATenative language     |
 ; +--------------------------------------------------------+
 
+; Meow5 Constants
+%assign INPUT_SIZE 1024 ; size of input buffer
+%assign COMPILE   00000001b ; flag: can be compiled
+%assign IMMEDIATE 00000010b ; flag: can be called
+%assign RUNCOMP   00000100b ; flag: runs in comp mode
+
+; Linux Constants
 %assign STDIN 0
 %assign STDOUT 1
 %assign STDERR 2
-
 %assign SYS_EXIT 1
+%assign SYS_READ 3
 %assign SYS_WRITE 4
-
-; word flags (can have 32 of these if needed)
-%assign COMPILE   00000001b ; word can be compiled
-%assign IMMEDIATE 00000010b ; can be called in imm mode
-%assign RUNCOMP   00000100b ; word execs in comp mode
 
 ; ----------------------------------------------------------
 ; BSS - reserved space
@@ -20,6 +22,7 @@
 section .bss
 mode: resb 4            ; IMMEDATE or COMPILE
 var_radix: resb 4       ; decimal=10, hex=16, etc.
+input_file: resb 4      ; input file desc. (STDIN, etc.)
 last: resb 4            ; Pointer to last defined word tail
 here: resb 4            ; Will point to compile_area
 free: resb 4            ; Will point to data_area
@@ -29,29 +32,12 @@ name_buffer:  resb 32   ; For colon (copy of token)
 compile_area: resb 4096 ; We inline ("compile") here!
 data_area: resb 1024    ; All variables go here!
 
-input_buffer_pos: resb 4 ; Save position of read tokens
+input_buffer: resb INPUT_SIZE ; input from user (or file?)
+input_buffer_end:             ; gotta know if we've hit end
+input_buffer_pos: resb 4      ; current position in input
 
 ; Return address for immediate mode execution only
 return_addr:   resb 4    ; To "push/pop" return stack
-
-; ----------------------------------------------------------
-; DATA - defined values
-; ----------------------------------------------------------
-section .data
-
-; I'm pretending to get this string from an input source:
-; NOTE: This buffer will move to the BSS section when I
-; start reading real input.
-input_buffer:
-;    db 'ps newline '
-;    db '42 ps newline '
-;    db '17 18 ps newline '
-    db ': meow "Meow. " print ; '
-    db ': meow5 meow meow meow meow meow ; '
-    db 'meow5 '
-    db 'newline '
-    db 'inspect_all '
-    db 0
 
 ; ----------------------------------------------------------
 ; MACROS!
@@ -318,64 +304,82 @@ DEFWORD find
 .done:
 ENDWORD find, "find", (IMMEDIATE)
 
+; Gets input from a file, filling input_buffer and resetting
+; input_buffer_pos.
+%macro GET_INPUT_CODE 0
+    ; Fill input buffer via linux 'read' syscall
+    mov ebx, [input_file] ; file descriptor (default STDIN)
+    mov ecx, input_buffer ; buffer for read
+    mov edx, INPUT_SIZE   ; max bytes to read
+    mov eax, SYS_READ     ; linux syscall 'read'
+    int 0x80              ; syscall interrupt!
+    ; Note: I initially had it push eax (bytes read) on the
+    ; stack here, thinking we would want to examine it after
+    ; calling this. But now I think that's just redundant.
+    cmp eax, INPUT_SIZE   ; we read less than full buffer?
+    jge %%done            ; No, continue
+    mov byte [input_buffer + eax], 0 ; Yes, null-terminate
+%%done:
+    mov dword [input_buffer_pos], input_buffer ; reset pos
+%endmacro
+DEFWORD get_input
+    GET_INPUT_CODE
+ENDWORD get_input, "get_input", (IMMEDIATE | COMPILE)
+
 ; Skips any characters space and below from input buffer.
 %macro EAT_SPACES_CODE 0
-    mov ebx, [input_buffer_pos] ; set input read addr
-    mov ecx, 0                  ; position index
+.reset:
+    mov esi, [input_buffer_pos] ; set input index
 .check:
-    mov al, [ebx + ecx] ; input addr + position index
-    cmp al, 0           ; end of input?
+    cmp esi, input_buffer_end ; need to get more input?
+    jl .continue    ; no, keep going
+    GET_INPUT_CODE  ; yes, get some
+    jmp .reset      ; got more input, reset and continue
+.continue:
+    mov al, [esi]   ; input addr + position index
+    cmp al, 0           ; end of input (null terminator)?
     je .done            ; yes, return
     cmp al, 0x20        ; anything space and below?
     jg .done            ; nope, we're done
-    inc ecx             ; 'eat' space by advancing input
+    inc esi             ; 'eat' space by advancing input
     jmp .check          ; loop
 .done:
-    cmp ecx, 0          ; did we eat anything?
-    je .done2           ; nope, just return
-    add ebx, ecx        ; new pointer
-    mov [input_buffer_pos], ebx ; save it
-.done2:
+    mov [input_buffer_pos], esi ; save input index
 %endmacro
 DEFWORD eat_spaces
     EAT_SPACES_CODE
 ENDWORD eat_spaces, "eat_spaces", (IMMEDIATE | COMPILE)
 
+; Gets a space-separated "token" of input.
+; Returns a null-terminated string OR 0 if we're out of
+; input.
 %macro GET_TOKEN_CODE 0
-    ; Returns (on stack) either:
-    ;  * Address of null-termed token string or
-    ;  * 0 if we're out of tokens
-    ; MUST be proceeded by eat_spaces or you may get false
-    ; end of input detection.
-    ;
-    ;  * * *
-    ; Input 'faked' for now, but fairly realistic. This
-    ; will definitely be changing in various ways with real
-    ; line input, though. For example, we'll need to see if
-    ; there's _more_ input available.
-    ;  * * *
-    ;
-    mov ebx, [input_buffer_pos] ; set input read addr
-    mov edx, token_buffer       ; set output write addr
-    mov ecx, 0                  ; position index
+; was:
+;  ebx = input   <-- esi
+;  edx = output  <-- edi
+    mov esi, [input_buffer_pos] ; input source index
+    mov edi, token_buffer       ; destination index
 .get_char:
-    mov al, [ebx + ecx] ; input addr + position index
+    cmp esi, input_buffer_end   ; need to get more input?
+    jl .skip_read               ; no, keep going
+    GET_INPUT_CODE              ; yes, get some
+    mov esi, [input_buffer_pos] ; reset source index
+.skip_read:
+    mov al, [esi]       ; input addr + position index
     cmp al, 0x20        ; end of token (spece or lower?)
     jle .end_of_token   ; yes
-    mov [edx + ecx], al ; write character
-    inc ecx             ; next character
+    mov byte [edi], al  ; write character
+    inc esi ; next source
+    inc edi ; next destination
     jmp .get_char
 .end_of_token:
-    ; okay, now did we hit the end while gathering
-    ; a token, or did we come up empty-handed?
-    cmp ecx, 0         ; did we have anything?
-    jne .return_token  ; we have a token
-    push DWORD 0       ; empty-handed
+    cmp edi, token_buffer ; did we write anything?
+    jg .return_token      ; yes, push the token addr
+    push DWORD 0          ; no, push 0 ("no token")
     jmp .return
 .return_token:
-    lea eax, [ebx + ecx]
-    mov [input_buffer_pos], eax ; save position
-    mov [edx + ecx], byte 0     ; terminate str null
+    mov [input_buffer_pos], esi ; save position
+    mov byte [edi], 0           ; null-terminate token str
     push DWORD token_buffer     ; return str address
 .return:
 %endmacro
@@ -404,7 +408,7 @@ DEFWORD colon
     ; get name from next token and store it...
     EAT_SPACES_CODE
     GET_TOKEN_CODE
-    push token_buffer ; source <----- TODO: redundant???
+    push token_buffer ; source
     push name_buffer  ; dest
     COPYSTR_CODE      ; copy name into name_buffer
     ; copy the here pointer so we have the start address
@@ -531,6 +535,13 @@ DEFWORD quote
     add edx, 5                ; update here
     mov [here], edx           ; save it
 .copy_char:
+    cmp esi, input_buffer_end   ; need to get more input?
+    jl .skip_read               ; no, keep going
+    GET_INPUT_CODE              ; yes, get some
+    mov esi, [input_buffer_pos] ; reset source index
+.skip_read:
+    ; TODO: check for null terminator and emit an "un-closed
+    ; quote" error if we hit it!
     mov al, [esi]       ; get char from source
     cmp al, '"'         ; look for endquote
     je .end_quote
@@ -575,23 +586,17 @@ DEFWORD quote
     ; num2str takes two things on the stack: the number to
     ; convert, and a destination address for writing the
     ; string. So we put our current write addr there.
-
     pop eax ; get number to convert from stack...
-
     push edi ; preserve before num2str
     push edx
     push esi
-
     push eax     ; num2str: num to convert
     push edi     ; num2str: destination address
     NUM2STR_CODE
     pop eax      ; chars written
-
-    ; restore
     pop esi ; restore after num2str
     pop edx
     pop edi
-
     ; Now add bytes written to offset destination address.
     ; (The '$' placeholder took up 1 byte of space in the
     ; source string, but we may have written multple bytes
@@ -729,7 +734,6 @@ ENDWORD number, 'number', (IMMEDIATE | COMPILE)
     push eax
     NUM2STR_CODE
     pop ebx ; chars written
-;    pop esi ; get preserved <-----??????
     ; null-terminate the number string!
     mov eax, [free]
     add eax, ebx
@@ -848,6 +852,10 @@ _start:
     mov dword [mode], IMMEDIATE
     ;mov dword [mode], COMPILE
 
+    ; Default to input file descriptor STDIN. We can change
+    ; this to make get_input read from different sources.
+    mov dword [input_file], STDIN
+
 	; Here points to the current spot where we're going to
 	; inline ("compile") the next word.
     mov dword [here], compile_area
@@ -865,9 +873,10 @@ _start:
 	; dictionary at the moment).
     mov dword [last], LAST_WORD_TAIL
 
-    ; This will probably _really_ get set when we read
-    ; more input. But for now, set to start of buffer:
-    mov dword [input_buffer_pos], input_buffer
+    ; In order to signal that we need to read input, pretend
+    ; we're already at the end of the buffer. Currently, the
+    ; 'eat_spaces' word will see that and read more input.
+    mov dword [input_buffer_pos], input_buffer_end
 
     ; Start off parsinga and printing numbers as decimals.
     mov dword [var_radix], 10
@@ -878,10 +887,12 @@ _start:
 ; ----------------------------------------------------------
 get_next_token:
     CALLWORD eat_spaces ; skip whitespace
-    ; In preparation to check for quotes and numbers, get
-    ; the first character from the input string.
+    ; Get the next character in the input stream to see what
+    ; it is. Check for end of input, quotes, and numbers.
     mov esi, [input_buffer_pos] ; source
-    mov al, [esi]
+    mov al, [esi]               ; first char
+    cmp al, 0                   ; out of input?
+    je .end_of_input            ; yup!
 .try_quote:
     cmp al, '"'         ; next char a quote?
     jne .try_num        ; nope, continue

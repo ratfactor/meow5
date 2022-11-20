@@ -5,6 +5,7 @@
 #   build.sh        Assemble, link
 #   build.sh gdb    Assemble, link, and debug
 #   build.sh run    Assemble, link, and run
+#   build.sh bytes  Assemble, link, and run to count bytes
 
 set -e # quit on errors
 
@@ -32,3 +33,9 @@ then
     exit
 fi
 
+if [[ $1 == 'bytes' ]]
+then
+    AWK='/^.*: [0-9]+/ {t=t+$2} END{print "Total bytes:", t}'
+    echo 'inspect_all' | ./$F | awk -e "$AWK"
+    exit
+fi
