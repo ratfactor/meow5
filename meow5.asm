@@ -33,8 +33,9 @@ compile_area: resb 4096 ; We inline ("compile") here!
 data_area: resb 1024    ; All variables go here!
 
 input_buffer: resb INPUT_SIZE ; input from user (or file?)
-input_buffer_end:             ; gotta know if we've hit end
+input_buffer_end: resb 4      ; current last addr of input
 input_buffer_pos: resb 4      ; current position in input
+input_eof: resb 4             ; flag 1=EOF reached
 
 ; Return address for immediate mode execution only
 return_addr:   resb 4    ; To "push/pop" return stack
@@ -313,13 +314,17 @@ ENDWORD find, "find", (IMMEDIATE)
     mov edx, INPUT_SIZE   ; max bytes to read
     mov eax, SYS_READ     ; linux syscall 'read'
     int 0x80              ; syscall interrupt!
-    ; Note: I initially had it push eax (bytes read) on the
-    ; stack here, thinking we would want to examine it after
-    ; calling this. But now I think that's just redundant.
-    cmp eax, INPUT_SIZE   ; we read less than full buffer?
-    jge %%done            ; No, continue
-    mov byte [input_buffer + eax], 0 ; Yes, null-terminate
-%%done:
+    DEBUG "read bytes: ", eax
+    cmp eax, 0            ; 0=EOF, -1=error
+    jg %%normal
+    mov dword [input_eof], 1  ; set EOF reached
+    DEBUG "EOF!", [input_eof]
+%%normal:
+    lea ebx, [input_buffer + eax] ; end of current input
+;    cmp eax, INPUT_SIZE   ; we read less than full buffer?
+;    jge %%done            ; No, continue
+;    mov byte [input_buffer + eax], 0 ; Yes, null-terminate
+;%%done:
     mov dword [input_buffer_pos], input_buffer ; reset pos
 %endmacro
 DEFWORD get_input
@@ -331,7 +336,7 @@ ENDWORD get_input, "get_input", (IMMEDIATE | COMPILE)
 .reset:
     mov esi, [input_buffer_pos] ; set input index
 .check:
-    cmp esi, input_buffer_end ; need to get more input?
+    cmp esi, [input_buffer_end] ; need to get more input?
     jl .continue    ; no, keep going
     GET_INPUT_CODE  ; yes, get some
     jmp .reset      ; got more input, reset and continue
@@ -360,7 +365,7 @@ ENDWORD eat_spaces, "eat_spaces", (IMMEDIATE | COMPILE)
     mov esi, [input_buffer_pos] ; input source index
     mov edi, token_buffer       ; destination index
 .get_char:
-    cmp esi, input_buffer_end   ; need to get more input?
+    cmp esi, [input_buffer_end] ; need to get more input?
     jl .skip_read               ; no, keep going
     GET_INPUT_CODE              ; yes, get some
     mov esi, [input_buffer_pos] ; reset source index
@@ -535,7 +540,7 @@ DEFWORD quote
     add edx, 5                ; update here
     mov [here], edx           ; save it
 .copy_char:
-    cmp esi, input_buffer_end   ; need to get more input?
+    cmp esi, [input_buffer_end] ; need to get more input?
     jl .skip_read               ; no, keep going
     GET_INPUT_CODE              ; yes, get some
     mov esi, [input_buffer_pos] ; reset source index
@@ -873,10 +878,13 @@ _start:
 	; dictionary at the moment).
     mov dword [last], LAST_WORD_TAIL
 
-    ; In order to signal that we need to read input, pretend
-    ; we're already at the end of the buffer. Currently, the
+    ; In order to signal that we need to read input on
+    ; start, set both the current read index and the end
+    ; location to the start of the buffer.  Currently, the
     ; 'eat_spaces' word will see that and read more input.
-    mov dword [input_buffer_pos], input_buffer_end
+    mov dword [input_buffer_pos], input_buffer
+    mov dword [input_buffer_end], input_buffer
+    mov dword [input_eof], 0 ; EOF flag
 
     ; Start off parsinga and printing numbers as decimals.
     mov dword [var_radix], 10
@@ -886,13 +894,18 @@ _start:
 ; Interpreter!
 ; ----------------------------------------------------------
 get_next_token:
+    mov eax, [input_eof]
+    cmp eax, 1       ; end of input?
+    je .end_of_input ; yes, time to die
     CALLWORD eat_spaces ; skip whitespace
     ; Get the next character in the input stream to see what
     ; it is. Check for end of input, quotes, and numbers.
     mov esi, [input_buffer_pos] ; source
     mov al, [esi]               ; first char
     cmp al, 0                   ; out of input?
-    je .end_of_input            ; yup!
+    jg .try_quote               ; no, keep going
+    GET_INPUT_CODE              ; yes, get more input
+    jmp get_next_token
 .try_quote:
     cmp al, '"'         ; next char a quote?
     jne .try_num        ; nope, continue
@@ -951,4 +964,4 @@ get_next_token:
     PRINTMODE_CODE
     PRINTSTR ' mode.'
     NEWLINE_CODE
-    EXIT_CODE
+    jmp get_next_token

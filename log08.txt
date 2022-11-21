@@ -188,4 +188,79 @@ Exit status: 0
         %assign INPUT_SIZE 1024 ; size of input buffer
 
     Now to figure out how to keep reading after the first
-    line (or token?) of input...
+    line (or token?) of input.
+
+    Okay, so I do need to check the return value from 'read'
+    because that's the only way I can know if I've really
+    got an EOF instead of just "no more input at this
+    moment" - as would be the case between when the user
+    hits enter and types the next line of input.
+
+    I also added a new eof global that I can trip as soon as
+    any of the 'get_input' instances hits the end of input:
+
+            cmp eax, 0            ; 0=EOF, -1=error
+            jge %%normal
+            mov dword [input_eof], 1  ; set EOF reached
+        %%normal:
+
+dave@cygnus~/meow5$ mr
+"Hello world!\n" print
+Hello world!
+
+: loud_meow "MEOW!\n" print ;
+loud_meow
+MEOW!
+
+exit
+Exit status: 12
+
+    Heh, that's so cool. I can finally interact with this
+    thing for real. But CTRL+D doesn't exit. I had to type
+    'exit' to make that happen.
+
+    I'll add a debug to 'get_input' to see what 'read' is
+    returning...
+
+dave@cygnus~/meow5$ mr
+"goodbye cruel world" print
+read bytes: 0000001c
+goodbye cruel world      <---- I typed ENTER here
+read bytes: 00000001
+                         <---- ENTER again here
+read bytes: 00000001
+read bytes: 00000000     <---- CTRL+D
+
+read bytes: 00000001     <---- ENTER again
+exit
+read bytes: 00000005
+Exit status: 1
+
+    Okay, so I guess I'm not checking the input_eof flag
+    correctly in my interpreter loop?
+
+    No! Ha, perhaps you spotted it before I did in the
+    assembly snippet? Here it is again:
+
+            cmp eax, 0            ; 0=EOF, -1=error
+            jge %%normal
+            mov dword [input_eof], 1  ; set EOF reached
+        %%normal:
+
+    Silly mistake:
+
+            jge %%normal
+
+    should be
+
+            jg %%normal
+
+    so that 0 will trigger EOF!
+
+    Okay, that pretty much worked. But there's still some
+    inelegant code in the interpreter where I feel like I'm
+    checking for input too many times and it's somehow still
+    not enough.
+
+    I was null-terminating it and I think I would be better
+    off setting an upper bound on it.
