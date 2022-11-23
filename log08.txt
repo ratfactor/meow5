@@ -264,3 +264,88 @@ Exit status: 1
 
     I was null-terminating it and I think I would be better
     off setting an upper bound on it.
+
+    Two nights later: Okay, just about have the kinks worked
+    out. I've got two new global variables to keep track of
+    the input buffer:
+
+        input_buffer: resb INPUT_SIZE
+        input_buffer_pos: resb 4
+        input_buffer_end: resb 4  <--- new
+        input_eof: resb 4         <--- new
+
+    Now I can check input_eof in any input words and in the
+    outer interpreter.
+
+    Okay, I'm stuck in 'eat_spaces'. I'm peppering it with
+    DEBUG macro calls to see what's up. esi contains the
+    current character in the input buffer (if it's a space,
+    we want to advance past it). ebx contains the last
+    position filled in the buffer by 'read'.
+
+$ mr
+eat_spaces pos: 0804c774
+eat_spaces RESET, pos: 0804c774
+ES more input! esi: 0804c774
+ES more input! ebx: 0804c774
+45 234 "hello!" meow             <----- I typed this
+read bytes: 00000015
+eat_spaces RESET, pos: 0804c774
+ES more input! esi: 0804c774
+ES more input! ebx: 0804c774
+read bytes: 00000000             <----- I typed CTRL+D here
+get_input EOF! 00000001
+eat_spaces RESET, pos: 0804c774
+get_next_token checking for EOF 0804ace2
+Goodbye.
+Exit status: 0
+
+    Well, that would be a problem. Looks like esi and ebx
+    are always the same value. Oops!
+
+    LOL, that's exactly it. I forgot to save the new end of
+    buffer pointer in 'get_input'. Here we are:
+
+        mov dword [input_buffer_end], ebx ; save it
+
+    Do you like super verbose logging? You'll love this.
+    Here I am printing "hello" and then quitting with
+    CTRL+D. It's hard to even find the interaction amidst
+    all the noise:
+
+eat_spaces pos: 0804c7d5
+eat_spaces RESET, pos: 0804c7d5
+eat_spaces looking at char... 0000000a
+ES more input! esi: 0804c7d6
+ES more input! ebx: 0804c7d6
+"hello" print
+read bytes: 0000000e
+eat_spaces RESET, pos: 0804c7cc
+eat_spaces looking at char... 00000022
+get_next_token checking for EOF 0804ad12
+get_next_token looking at chars. 0804ad12
+quote0804c7cc
+eat_spaces pos: 0804c7d3
+eat_spaces RESET, pos: 0804c7d3
+eat_spaces looking at char... 0804c320
+eat_spaces looking at char... 0804c370
+eat_spaces pos: 0804c7d4
+eat_spaces RESET, pos: 0804c7d4
+eat_spaces looking at char... 00000070
+get_next_token checking for EOF 0804ad12
+get_next_token looking at chars. 0804ad12
+get_token0804c7d4
+helloeat_spaces pos: 0804c7d9
+eat_spaces RESET, pos: 0804c7d9
+eat_spaces looking at char... 0000000a
+ES more input! esi: 0804c7da
+ES more input! ebx: 0804c7da
+read bytes: 00000000
+get_input EOF! 00000001
+eat_spaces RESET, pos: 0804c7cc
+get_next_token checking for EOF 0804ad12
+Goodbye.
+Exit status: 0
+
+    But it works. I'll clean this up tomorrow night and see
+    if I can add a simple test script.

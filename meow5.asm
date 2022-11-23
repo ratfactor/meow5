@@ -308,6 +308,7 @@ ENDWORD find, "find", (IMMEDIATE)
 ; Gets input from a file, filling input_buffer and resetting
 ; input_buffer_pos.
 %macro GET_INPUT_CODE 0
+    pusha ; preserve all reg
     ; Fill input buffer via linux 'read' syscall
     mov ebx, [input_file] ; file descriptor (default STDIN)
     mov ecx, input_buffer ; buffer for read
@@ -318,14 +319,16 @@ ENDWORD find, "find", (IMMEDIATE)
     cmp eax, 0            ; 0=EOF, -1=error
     jg %%normal
     mov dword [input_eof], 1  ; set EOF reached
-    DEBUG "EOF!", [input_eof]
+    DEBUG "get_input EOF! ", [input_eof]
 %%normal:
     lea ebx, [input_buffer + eax] ; end of current input
+    mov dword [input_buffer_end], ebx ; save it
 ;    cmp eax, INPUT_SIZE   ; we read less than full buffer?
 ;    jge %%done            ; No, continue
 ;    mov byte [input_buffer + eax], 0 ; Yes, null-terminate
 ;%%done:
     mov dword [input_buffer_pos], input_buffer ; reset pos
+    popa ; restore all reg
 %endmacro
 DEFWORD get_input
     GET_INPUT_CODE
@@ -333,21 +336,29 @@ ENDWORD get_input, "get_input", (IMMEDIATE | COMPILE)
 
 ; Skips any characters space and below from input buffer.
 %macro EAT_SPACES_CODE 0
+DEBUG "eat_spaces pos: ", [input_buffer_pos]
 .reset:
+DEBUG "eat_spaces RESET, pos: ", [input_buffer_pos]
     mov esi, [input_buffer_pos] ; set input index
+    cmp dword [input_eof], 1
+    je .done ; we hit eof at some point, we're done
+    mov ebx, [input_buffer_end] ; store for comparison
 .check:
-    cmp esi, [input_buffer_end] ; need to get more input?
+    cmp esi, ebx    ; have we hit end pos?
     jl .continue    ; no, keep going
+    DEBUG "ES more input! esi: ", esi
+    DEBUG "ES more input! ebx: ", ebx
     GET_INPUT_CODE  ; yes, get some
     jmp .reset      ; got more input, reset and continue
 .continue:
     mov al, [esi]   ; input addr + position index
-    cmp al, 0           ; end of input (null terminator)?
-    je .done            ; yes, return
-    cmp al, 0x20        ; anything space and below?
-    jg .done            ; nope, we're done
-    inc esi             ; 'eat' space by advancing input
-    jmp .check          ; loop
+DEBUG "eat_spaces looking at char... ", eax
+    cmp al, 0       ; end of input (null terminator)?
+    je .done        ; yes, return
+    cmp al, 0x20    ; anything space and below?
+    jg .done        ; nope, we're done
+    inc esi         ; 'eat' space by advancing input
+    jmp .check      ; loop
 .done:
     mov [input_buffer_pos], esi ; save input index
 %endmacro
@@ -359,6 +370,7 @@ ENDWORD eat_spaces, "eat_spaces", (IMMEDIATE | COMPILE)
 ; Returns a null-terminated string OR 0 if we're out of
 ; input.
 %macro GET_TOKEN_CODE 0
+DEBUG "get_token", [input_buffer_pos]
 ; was:
 ;  ebx = input   <-- esi
 ;  edx = output  <-- edi
@@ -368,6 +380,8 @@ ENDWORD eat_spaces, "eat_spaces", (IMMEDIATE | COMPILE)
     cmp esi, [input_buffer_end] ; need to get more input?
     jl .skip_read               ; no, keep going
     GET_INPUT_CODE              ; yes, get some
+    cmp dword [input_eof], 1
+    je .return ; we hit eof, we're done
     mov esi, [input_buffer_pos] ; reset source index
 .skip_read:
     mov al, [esi]       ; input addr + position index
@@ -527,6 +541,7 @@ ENDWORD num2str, "num2str", (IMMEDIATE | COMPILE)
 ; nothing. If it is, copy the string up to the endquote into
 ; the data_area and then return its address. Update free.
 DEFWORD quote
+DEBUG "quote", [input_buffer_pos]
     mov esi, [input_buffer_pos] ; source
     inc esi             ; yup, now move past it
     mov edi, [free]     ; get string's new address
@@ -543,10 +558,10 @@ DEFWORD quote
     cmp esi, [input_buffer_end] ; need to get more input?
     jl .skip_read               ; no, keep going
     GET_INPUT_CODE              ; yes, get some
+    cmp dword [input_eof], 1
+    je .quote_done ; we hit eof, we're done
     mov esi, [input_buffer_pos] ; reset source index
 .skip_read:
-    ; TODO: check for null terminator and emit an "un-closed
-    ; quote" error if we hit it!
     mov al, [esi]       ; get char from source
     cmp al, '"'         ; look for endquote
     je .end_quote
@@ -895,17 +910,15 @@ _start:
 ; ----------------------------------------------------------
 get_next_token:
     mov eax, [input_eof]
-    cmp eax, 1       ; end of input?
-    je .end_of_input ; yes, time to die
     CALLWORD eat_spaces ; skip whitespace
+    DEBUG "get_next_token checking for EOF ", eax
+    cmp dword [input_eof], 1 ; end of input?
+    je .end_of_input ; yes, time to die
     ; Get the next character in the input stream to see what
     ; it is. Check for end of input, quotes, and numbers.
+    DEBUG "get_next_token looking at chars. ", eax
     mov esi, [input_buffer_pos] ; source
     mov al, [esi]               ; first char
-    cmp al, 0                   ; out of input?
-    jg .try_quote               ; no, keep going
-    GET_INPUT_CODE              ; yes, get more input
-    jmp get_next_token
 .try_quote:
     cmp al, '"'         ; next char a quote?
     jne .try_num        ; nope, continue
