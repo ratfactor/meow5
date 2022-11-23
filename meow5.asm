@@ -26,7 +26,7 @@ input_file: resb 4      ; input file desc. (STDIN, etc.)
 last: resb 4            ; Pointer to last defined word tail
 here: resb 4            ; Will point to compile_area
 free: resb 4            ; Will point to data_area
-stack_start: resb 4     ; Will point to "bottom" of stack
+stack_start: resb 4     ; Will point to first stack addr
 token_buffer: resb 32   ; For get_token
 name_buffer:  resb 32   ; For colon (copy of token)
 compile_area: resb 4096 ; We inline ("compile") here!
@@ -194,21 +194,6 @@ DEFWORD strlen ; (straddr) strlen (straddr len)
     STRLEN_CODE
 ENDWORD strlen, "strlen", (IMMEDIATE | COMPILE)
 
-; Prints a newline to STDOUT, no fuss
-%macro NEWLINE_CODE 0
-    mov eax, 0x0A      ; newline byte (into 4 byte reg)
-    push eax           ; put on stack so has addr
-    mov ebx, STDOUT    ; write destination file
-    mov edx, 1         ; length = 1 byte
-    mov ecx, esp       ; addr of stack (little-endian!)
-    mov eax, SYS_WRITE ; syscall
-    int 0x80           ; interrupt to linux!
-    pop eax            ; clear the newline from stack
-%endmacro
-DEFWORD newline ; () newline ()
-    NEWLINE_CODE
-ENDWORD newline, "newline", (IMMEDIATE | COMPILE)
-
 ; Prints a null-terminated string by address on stack.
 %macro PRINT_CODE 0
     pop eax
@@ -224,7 +209,6 @@ ENDWORD newline, "newline", (IMMEDIATE | COMPILE)
 DEFWORD print ; (straddr) print ()
     PRINT_CODE
 ENDWORD print, "print", (IMMEDIATE | COMPILE)
-
 
 %macro INLINE_CODE 0
     pop esi ; param1: tail of word to inline
@@ -315,11 +299,9 @@ ENDWORD find, "find", (IMMEDIATE)
     mov edx, INPUT_SIZE   ; max bytes to read
     mov eax, SYS_READ     ; linux syscall 'read'
     int 0x80              ; syscall interrupt!
-    DEBUG "read bytes: ", eax
     cmp eax, 0            ; 0=EOF, -1=error
     jg %%normal
     mov dword [input_eof], 1  ; set EOF reached
-    DEBUG "get_input EOF! ", [input_eof]
 %%normal:
     lea ebx, [input_buffer + eax] ; end of current input
     mov dword [input_buffer_end], ebx ; save it
@@ -336,9 +318,7 @@ ENDWORD get_input, "get_input", (IMMEDIATE | COMPILE)
 
 ; Skips any characters space and below from input buffer.
 %macro EAT_SPACES_CODE 0
-DEBUG "eat_spaces pos: ", [input_buffer_pos]
 .reset:
-DEBUG "eat_spaces RESET, pos: ", [input_buffer_pos]
     mov esi, [input_buffer_pos] ; set input index
     cmp dword [input_eof], 1
     je .done ; we hit eof at some point, we're done
@@ -346,13 +326,10 @@ DEBUG "eat_spaces RESET, pos: ", [input_buffer_pos]
 .check:
     cmp esi, ebx    ; have we hit end pos?
     jl .continue    ; no, keep going
-    DEBUG "ES more input! esi: ", esi
-    DEBUG "ES more input! ebx: ", ebx
     GET_INPUT_CODE  ; yes, get some
     jmp .reset      ; got more input, reset and continue
 .continue:
     mov al, [esi]   ; input addr + position index
-DEBUG "eat_spaces looking at char... ", eax
     cmp al, 0       ; end of input (null terminator)?
     je .done        ; yes, return
     cmp al, 0x20    ; anything space and below?
@@ -370,7 +347,6 @@ ENDWORD eat_spaces, "eat_spaces", (IMMEDIATE | COMPILE)
 ; Returns a null-terminated string OR 0 if we're out of
 ; input.
 %macro GET_TOKEN_CODE 0
-DEBUG "get_token", [input_buffer_pos]
 ; was:
 ;  ebx = input   <-- esi
 ;  edx = output  <-- edi
@@ -541,7 +517,6 @@ ENDWORD num2str, "num2str", (IMMEDIATE | COMPILE)
 ; nothing. If it is, copy the string up to the endquote into
 ; the data_area and then return its address. Update free.
 DEFWORD quote
-DEBUG "quote", [input_buffer_pos]
     mov esi, [input_buffer_pos] ; source
     inc esi             ; yup, now move past it
     mov edi, [free]     ; get string's new address
@@ -738,8 +713,7 @@ ENDWORD decimal, 'decimal', (IMMEDIATE | COMPILE)
     PRINTSTR 'Error parsing "'
     push token_buffer
     CALLWORD print
-    PRINTSTR '" as a number.'
-    NEWLINE_CODE
+    PRINTSTR `" as a number.\n`
     EXIT_CODE
 %%done:
 %endmacro
@@ -839,7 +813,7 @@ ENDWORD printstack, 'ps', (IMMEDIATE | COMPILE)
     mov eax, [esi + T_FLAGS]
     push eax
     PRINTMODE_CODE
-    NEWLINE_CODE
+    PRINTSTR `\n`
 %endmacro
 DEFWORD inspect
     INSPECT_CODE
@@ -860,6 +834,21 @@ DEFWORD inspect_all
     jne .inspect_loop ; nope, keep going!
 ENDWORD inspect_all, 'inspect_all', (IMMEDIATE)
 
+; Print all word names
+DEFWORD all_names
+    mov esi, [last] ; tail addr of last word defined
+.print_loop:
+    lea eax, [esi + T_NAME] ; name
+    mov esi, [esi] ; get prev tail pointer
+    push esi       ; preserve it
+    push eax ; name for print
+    PRINT_CODE
+    PRINTSTR " " ; space between names
+    pop esi ; restore tail
+    cmp esi, 0        ; done?
+    jne .print_loop ; nope, keep going!
+    PRINTSTR `\n`
+ENDWORD all_names, 'all', (IMMEDIATE)
 
 ; ----------------------------------------------------------
 ; PROGRAM START!
@@ -870,7 +859,6 @@ _start:
 
     ; Start in immediate mode - execute words immediately!
     mov dword [mode], IMMEDIATE
-    ;mov dword [mode], COMPILE
 
     ; Default to input file descriptor STDIN. We can change
     ; this to make get_input read from different sources.
@@ -884,9 +872,14 @@ _start:
     ; where all variables and non-stack data goes.
     mov dword [free], data_area
 
-    ; Store the "start" (or "bottom") so we can reference it
+    ; Store the first stack address so we can reference it
     ; later (such as printing contents of stack).
     mov dword [stack_start], esp
+
+    push dword 555
+    push dword 42
+
+    CALLWORD printstack
 
     ; Store last tail for dictionary searches (note that
 	; find just happens to be the last word defined in the
@@ -911,12 +904,10 @@ _start:
 get_next_token:
     mov eax, [input_eof]
     CALLWORD eat_spaces ; skip whitespace
-    DEBUG "get_next_token checking for EOF ", eax
     cmp dword [input_eof], 1 ; end of input?
     je .end_of_input ; yes, time to die
     ; Get the next character in the input stream to see what
     ; it is. Check for end of input, quotes, and numbers.
-    DEBUG "get_next_token looking at chars. ", eax
     mov esi, [input_buffer_pos] ; source
     mov al, [esi]               ; first char
 .try_quote:
@@ -961,8 +952,7 @@ get_next_token:
     CALLWORD ebx ; call word with that addr (via reg)
     jmp get_next_token
 .end_of_input:
-    PRINTSTR 'Goodbye.'
-    CALLWORD newline
+    PRINTSTR `Goodbye.\n`
     push 0 ; exit status
     CALLWORD exit
 .token_not_found:
@@ -975,6 +965,5 @@ get_next_token:
     mov eax, [mode]
     push eax
     PRINTMODE_CODE
-    PRINTSTR ' mode.'
-    NEWLINE_CODE
+    PRINTSTR ` mode.\n`
     jmp get_next_token

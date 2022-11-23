@@ -5,7 +5,7 @@
     being able to have some regression tests as well.
 
         [ ] Get input string from 'read' syscall
-        [ ] Add some testing
+        [ ] Add some testing (shell script?)
 
     Testing is one of those things that a lot of people have
     strong opinions about. But I absolutely love having a
@@ -349,3 +349,169 @@ Exit status: 0
 
     But it works. I'll clean this up tomorrow night and see
     if I can add a simple test script.
+
+    Next night: The DEBUGs are cleaned up. Now a couple
+    housekeeping things. First, I want to complete that TODO
+    item from the last log, a word to print all defined
+    words (just the names, not the entire 'inspect' output.
+    I think I'll call it 'all'.
+
+        [ ] New word: 'all' to list all current word names
+
+    Well, that was easy:
+
+$ mr
+all
+all inspect_all inspect ps printmode printnum number decimal bin oct hex radix str2num quote num2str ; return : copystr get_token eat_spaces get_input find is_runcomp get_flags inline print newline strlen exit
+Goodbye.
+Exit status: 0
+
+    I also added a non-destructive stack printing word last
+    log and I never actually got it working. So I'd like to
+    fix that.
+
+        [ ] Finish 'ps' (non-destructive stack print)
+
+    And since I have string escape sequences for
+    runtime newline printing and NASM can include newlines
+    in string literals with backticks, I'd like to remove
+    the 'newline' word. I'm only using it in a couple places
+    anyway.
+
+        [ ] Remove word 'newline' (replace with `\n`)
+
+    That one was super-easy too. I didn't really need a TODO
+    item for it. But it'll feel good to show that checked
+    box at the end of the log, so why not?
+
+    Now for that print stack:
+
+$ mr
+42 ps
+1 4290881940 0 4290881948 4290881964 4290881982
+4290882002 4290882040 4290882048 4290882106 ...
+
+    It just keeps going on and on. And then ends in a
+    Segmentation fault. So clearly I've got something wrong.
+
+    When the interpreter starts, I save the stack pointer to
+    a variable.
+
+        mov dword [stack_start], esp
+
+    I want to do a sanity check, so I'll push two values:
+
+        push dword 555
+        push dword 42
+
+    Let's see this in action to confirm how x86 stacks work:
+
+$ mb
+Reading symbols from meow5...
+(gdb) break 877
+Breakpoint 1 at 0x8049f92: file meow5.asm, line 877.
+(gdb) r
+Starting program: /home/dave/meow5/meow5 
+
+Breakpoint 1, _start () at meow5.asm:877
+
+    Okay, let's see what the stack register current points
+    to (and by using GDB's 'display', this will always print
+    after every command):
+
+(gdb) disp $esp
+1: $esp = (void *) 0xffffd780
+(gdb) disp *(int)$esp
+2: *(int)$esp = 1
+
+    I've noticed that 1 (one) when I was trying to debug the
+    stack before. I have no idea why that's there. That's
+    something else to figure out.
+
+    Anyway, we can see that the "first" stack address:
+
+        0xffffd780
+
+    And as I push values onto the stack, esp should
+    decrement by 4 since the x86 stack writes to memory
+    backward. (By the way, I feel a rant about how we
+    describe this coming on, stay tuned for that in a
+    moment.)
+
+    -------------------------------------------------------
+                            NOTE
+    -------------------------------------------------------
+    By the way, I often manually manipulate these GDB
+    sessions here in my logs so that the instruction I'm
+    executing shows up right before I start examining
+    memory. Sorry if that confuses people who are
+    well-versed in GDB and are wondering what the heck is
+    going on.
+    -------------------------------------------------------
+
+    Now I'll just verify that my stack_start variable indeed
+    holds the same value as esp and it points to that '1' at
+    the beginning of the stack:
+
+877	    mov dword [stack_start], esp
+(gdb) s
+1: $esp = (void *) 0xffffd780
+2: *(int)$esp = 1
+(gdb) x/a (int)stack_start 
+0xffffd780:	0x1
+
+    Yup. No surprises so far.
+
+    Now when I push, we should see esp decrement and point
+    to the newly pushed value:
+
+879	    push dword 555
+(gdb) s
+1: $esp = (void *) 0xffffd77c
+2: *(int)$esp = 555
+880	    push dword 42
+(gdb) s
+1: $esp = (void *) 0xffffd778
+2: *(int)$esp = 42
+
+    Looks good so far!
+
+        0xffffd780 1
+        0xffffd77c 555
+        0xffffd778 42
+
+    ...I think. I'm really no good at hex calculations in my
+    head. Even easy ones. Let's confirm with 'dc', the old
+    RPN desk calculator on UNIX systems since forever:
+
+$ dc
+16 i 10 o   <--- set input and output base to 16 (get it?)
+1A 5 + p
+1F          <--- just making sure it's set up okay
+D780 p
+D780        <--- 0xffffd780
+4 - p
+D77C        <--- 0xffffd77c
+4 - p
+D778        <--- 0xffffd778
+
+    dc is crazy. Anyway, those addresses are right. Every
+    push subtracts 4 from esp and writes the pushed value to
+    that address.
+
+    So when I examine the stack area of memory, I should be able to
+    subtract 4 from my stack_start variable and see each
+    value. When I hit the current value of esp, that's the
+    last value on the stack and I'm done:
+
+(gdb) x/d (int)stack_start 
+0xffffd780:	1
+(gdb) x/d (int)stack_start -4
+0xffffd77c:	555
+(gdb) x/d (int)stack_start -8
+0xffffd778:	42
+
+    Great! So the computer is doing what I think it's doing.
+    Always a good sign. :-)
+
+    Okay, now for that rant...
