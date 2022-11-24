@@ -772,23 +772,21 @@ DEFWORD printmode
 ENDWORD printmode, 'printmode', (IMMEDIATE | COMPILE)
 
 %macro PRINTSTACK_CODE 0
-    mov esi, [stack_start]
-    mov ecx, 0
+    mov ecx, [stack_start]
+    sub ecx, esp ; difference between start and current
 %%dword_loop:
-    lea eax, [esi + ecx]
-    cmp eax, esp         ; are we done? (hit stack pointer)
-    jl %%done            ; yes
-    mov eax, [eax]       ; no, print this value
-    push esi ; preserve
+    cmp ecx, 0           ; reached start?
+    jl %%done            ; yup, done
+    mov eax, [esp + ecx] ; no, print this value
     push ecx ; preserve
     push eax ; print this value
     PRINTNUM_CODE
     PRINTSTR " "
     pop ecx  ; restore
-    pop esi  ; restore
-    add ecx, 4 ; go "backward" a dword on stack
+    sub ecx, 4 ; reduce stack index by dword
     jmp %%dword_loop
 %%done:
+    PRINTSTR `\n`
 %endmacro
 DEFWORD printstack
     PRINTSTACK_CODE
@@ -873,13 +871,11 @@ _start:
     mov dword [free], data_area
 
     ; Store the first stack address so we can reference it
-    ; later (such as printing contents of stack).
-    mov dword [stack_start], esp
-
-    push dword 555
-    push dword 42
-
-    CALLWORD printstack
+    ; later (such as printing contents of stack). Subtract 4
+    ; so that we mark the *next* position as the first (sich
+    ; it's the first position to which we'll push a value).
+    lea eax, [esp - 4]
+    mov [stack_start], eax
 
     ; Store last tail for dictionary searches (note that
 	; find just happens to be the last word defined in the

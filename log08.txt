@@ -514,4 +514,204 @@ D778        <--- 0xffffd778
     Great! So the computer is doing what I think it's doing.
     Always a good sign. :-)
 
-    Okay, now for that rant...
+     *****************************************************
+     * RANT ALERT * RANT ALERT * RANT ALERT * RANT ALERT * 
+     *****************************************************
+
+    Okay, so my issue with how we talk about stacks is the
+    use of terms like "top" and "bottom".
+
+    If we start with the stack of plates analogy, it's
+    perfectly fine to talk about the top of the stack
+    because it makes physical sense:
+
+        =====   <--- top plate
+        =====
+        =====
+        =====
+
+    But where's the "top" of this memory?
+
+        +-----+
+        |     | 0x0000
+        +-----+
+        |     | ...
+        +-----+
+        |     | 0xFFFF
+        +-----+
+
+    Okay, now where's the "top" of this memory?
+
+        +-----+
+        |     | 0xFFFF
+        +-----+
+        |     | ...
+        +-----+
+        |     | 0x0000
+        +-----+
+
+    Where's the "top" of the stack in this memory?
+
+        +-----+
+        | === | 0xFFFF  } stack start
+        +-===-+         } stack
+        | === | ...     } stack
+        +-----+
+        |     | 0x0000
+        +-----+
+
+    And the "top" of the stack in this memory?
+
+        +-----+
+        | === | 0x0000  } stack start
+        +-===-+         } stack
+        | === | ...     } stack
+        +-----+
+        |     | 0xFFFF
+        +-----+
+
+    Or this?
+
+        +-----+
+        |     | 0xFFFF
+        +-----+
+        | === | ...     } stack
+        +-===-+         } stack
+        | === | 0x0000  } stack start
+        +-----+
+
+    Or this?
+
+        +-----+
+        |     | 0x0000
+        +-----+
+        | === | ...     } stack
+        +-===-+         } stack
+        | === | 0xFFFF  } stack start
+        +-----+
+
+    I've seen ALL of these representations over the years
+    and the person making the diagram just passes it off
+    like their own personal mental model is completely
+    obvious.
+
+    This situation is nuts.
+
+    And I know Intel's official docs for x86 use the "top"
+    and "bottom" terms. But guess what? Intel's "word" size
+    on 64-bit processors is 16 bits, so I think we can
+    safely ignore their advice on terminology.
+
+    Personally, I don't picture ANY of the diagrams above.
+
+    Instead, I imagine the stack as horizontal memory and
+    the stack grows to the right:
+
+       +--------------------
+       | A | B | C | D | E --->
+       +--------------------
+         ^               ^
+        oldest          current
+
+    But you'll notice that I don't say "rightmost" or
+    "leftmost". That would be ridiculous. Especially since
+    x86 has a stack that grows from a high-numbered address
+    to a lower-numbered address. So it's really more like
+    this:
+
+                           --------------------+       
+                        <--- E | D | C | B | A |       
+                           --------------------+       
+                             ^               ^
+                            0xE4           0xFF
+                          (current)      (oldest)
+
+    Anyway, the point is that using directional descriptions
+    as if we were all looking at the same physical object is
+    super confusing.
+
+    I prefer stack descriptions such as:
+
+        * current / newest / recent
+        * older / previous
+        * oldest
+        * hot vs cold
+        * surfaced / buried
+
+    And so on. I'm sure you can think of some better ones.
+    Actually, please do.
+
+     *****************************************************
+     * RANT ALERT * RANT ALERT * RANT ALERT * RANT ALERT * 
+     *****************************************************
+
+    Sorry about that. I do feel better now. So, I've made
+    some changes in how I do the stack printing (I needed to
+    basically reverse everything I was doing, ha ha) and
+    let's see if it works now:
+
+$ mr
+ps
+1
+42 555 97 33
+ps
+1 42 555 97 33
+"Hello $ $ $" print
+Hello 33 97 555
+ps
+1 42
+"I put $ on there, but where does the $ come from???\n" print
+I put 42 on there, but where does the 1 come from???
+Goodbye.
+Exit status: 0
+
+    I don't know if that's hard to follow or not? It's
+    tempting to make some sort of prompt in the interpreter
+    just so it's easier to see the commands I type versus
+    the responses.
+    
+    Anyway, it works great. I just don't understand why
+    there's a 1 on the stack when I start?
+
+    I guess it doesn't really matter. It occurs to me that I
+    should consider the start of the stack to be the *next*
+    available position. I'll update that now.
+
+    From:
+
+        mov dword [stack_start], esp
+
+    To:
+
+        lea eax, [esp - 4]
+        mov [stack_start], eax
+
+    Did that fix it?
+
+ps
+
+42 16 ps
+42 16
+8 ps
+42 16 8
+
+    Yup! Now we start with nothing on the stack and adding
+    items to the stack only shows those items.
+
+    Now how about a test script? I'm a big fan of simple
+    tests that are just enough to give me the  peace-of-mind
+    that I haven't broken anything that used to work.
+
+    One thing that works just fine now that I take input on
+    STDIN is piping input:
+
+$ echo "42 13 ps" | ./meow5 
+42 13 
+Goodbye.
+
+    And I can grep/ag the results to make they contain what
+    I want.
+
+    But I remember 'expect' from back when I was heavy into
+    Tcl. I think I'll give that a shot to interactively
+    drive the interpreter and test it.
