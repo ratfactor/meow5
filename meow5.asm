@@ -890,7 +890,7 @@ _start:
     mov dword [input_buffer_end], input_buffer
     mov dword [input_eof], 0 ; EOF flag
 
-    ; Start off parsinga and printing numbers as decimals.
+    ; Start off parsing and printing numbers as decimals.
     mov dword [var_radix], 10
 
 

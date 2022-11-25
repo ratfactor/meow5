@@ -1,0 +1,21 @@
+#!/usr/bin/expect
+
+spawn ./meow5
+
+# Print a string
+send -- "\"Meow\\n\" print\r"
+expect "Meow"
+
+# Consruct meow and test it
+send -- ": meow \"Meow. \" print ;\r"
+send -- "meow\r"
+expect "Meow. "
+
+# Consruct meow5 and test it
+send -- ": meow5 meow meow meow meow meow \"\\n\" print ;\r"
+send -- "meow5\r"
+expect "Meow. Meow. Meow. Meow. Meow."
+
+# Exit (send CTRL+D EOF)
+send -- "\x04"
+expect eof

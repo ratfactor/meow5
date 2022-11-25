@@ -715,3 +715,63 @@ Goodbye.
     But I remember 'expect' from back when I was heavy into
     Tcl. I think I'll give that a shot to interactively
     drive the interpreter and test it.
+
+    Expect is so cool. Here's my whole test script so far:
+
+        #!/usr/bin/expect
+
+        spawn ./meow5
+
+        # Print a string
+        send -- "\"Meow\\n\" print\r"
+        expect "Meow"
+
+        # Consruct meow and test it
+        send -- ": meow \"Meow. \" print ;\r"
+        send -- "meow\r"
+        expect "Meow. "
+
+        # Consruct meow5 and test it
+        send -- ": meow5 meow meow
+                meow meow meow \"\\n\" print ;\r"
+        send -- "meow5\r"
+        expect "Meow. Meow. Meow. Meow. Meow."
+
+        # Exit (send CTRL+D EOF)
+        send -- "\x04"
+        expect eof
+
+    The long meow5 definition line has been broken onto the
+    next line for this log.
+
+    Here it is running!
+
+$ ./test.exp
+spawn ./meow5
+"Meow\n" print
+Meow
+: meow "Meow. " print ;
+meow
+Meow. : meow5 meow meow meow meow meow "\n" print ;
+meow5
+Meow. Meow. Meow. Meow. Meow. 
+Goodbye.
+
+    I'll add a new alias for it now. (Defined by my "meow"
+    function in .bashrc):
+
+        alias mt="./build.sh ; ./test.exp"
+
+    Sweet! That wraps up this log and the goals I had for
+    it. I'll ad more to the test script as I go. This was
+    just go get it started.
+
+    
+        [x] Get input string from 'read' syscall
+        [x] Finish 'ps' (non-destructive stack print)
+        [x] New word: 'all' to list all current word names
+        [x] Remove word 'newline' (replace with `\n`)
+        [x] Add some testing (expect!)
+    
+    I think I might make some math words next so I can use
+    the language to do basic stuff like add and subtract!

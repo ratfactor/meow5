@@ -7,7 +7,7 @@ see where I'm currently at! Also take a look at
 `design-notes.txt` for more ongoing thoughts (also kinda
 functions as a vague todo/done list).
 
-Currently works (input hard-coded, but otherwise legit):
+The language is now fully interactive!
 
 ```
 > "Hello world!\n" print
