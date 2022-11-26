@@ -1,0 +1,64 @@
+    It's pretty wild what I *don't* yet have in this
+    language:
+
+        * Basic math operations
+        * Conditionals
+        * Loops
+        * User-defined variables
+
+    The easiest one to rectify, I think, will be some basic
+    math operations. With that, I can at least have a decent
+    RPN calculator.
+
+    Before I do that, I'd like to now start separating the
+    language primitives I used in the creation of the
+    interpreter versus everyhing else.
+
+    Putting everything else in another file and including it
+    turns out to be super easy with NASM:
+
+        %include 'stdlib.asm'
+
+    So far, stdlib.asm contains just these:
+
+        ps (print stack)
+        inspect
+        inspect_all
+        all (all names)
+
+    So now I'll...YUCK, nevermind! NASM doesn't report the
+    line number of an error in an included file - it really
+    pretends the included content is actually in the file
+    that did the including. It was probably premature to
+    split this up anyway.
+
+    So everything will stay in meow5.asm as before.
+
+    Okay, so the math operations are easy because I'm just
+    popping the arguments, calling the CPU instructions, and
+    pushing the answer:
+
+$ mr
+20 8 - ps
+12
+4 * ps
+48
+3 / ps
+0 16
+"4 divided by 3 is $ remainder $\n" print
+4 divided by 3 is 16 remainder 0
+bin
+1011 0100 + ps
+1111
+1111 hex ps
+f f
+0beef ps
+f f beef
++ ps
+f befe
++ ps
+bf0d
+Goodbye.
+Exit status: 0
+
+

@@ -848,6 +848,36 @@ DEFWORD all_names
     PRINTSTR `\n`
 ENDWORD all_names, 'all', (IMMEDIATE)
 
+DEFWORD add
+    pop eax
+    pop ebx
+    add eax, ebx
+    push eax
+ENDWORD add, '+', (IMMEDIATE | COMPILE)
+
+DEFWORD sub
+    pop ebx
+    pop eax
+    sub eax, ebx
+    push eax
+ENDWORD sub, '-', (IMMEDIATE | COMPILE)
+
+DEFWORD mul
+    pop eax
+    pop ebx
+    imul eax, ebx
+    push eax
+ENDWORD mul, '*', (IMMEDIATE | COMPILE)
+
+DEFWORD div
+    mov edx, 0
+    pop ebx
+    pop eax
+    idiv ebx
+    push edx ; remainder
+    push eax ; answer (quotient)
+ENDWORD div, '/', (IMMEDIATE | COMPILE)
+
 ; ----------------------------------------------------------
 ; PROGRAM START!
 ; ----------------------------------------------------------
