@@ -878,6 +878,18 @@ DEFWORD div
     push eax ; answer (quotient)
 ENDWORD div, '/', (IMMEDIATE | COMPILE)
 
+DEFWORD inc
+    pop ecx
+    inc ecx
+    push ecx
+ENDWORD inc, 'inc', (IMMEDIATE | COMPILE)
+
+DEFWORD dec
+    pop ecx
+    dec ecx
+    push ecx
+ENDWORD dec, 'dec', (IMMEDIATE | COMPILE)
+
 ; ----------------------------------------------------------
 ; PROGRAM START!
 ; ----------------------------------------------------------

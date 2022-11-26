@@ -61,4 +61,14 @@ bf0d
 Goodbye.
 Exit status: 0
 
+    Increment and decrement! Bam! Easy!
 
+45 inc ps
+46
+dec dec dec ps
+43
+
+    I love easy stuff!
+
+    I'll need to figure out some more substantial stuff
+    next. Variables, maybe. Or conditionals.
