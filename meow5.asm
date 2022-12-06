@@ -387,12 +387,12 @@ ENDWORD get_token, "get_token", (IMMEDIATE)
     pop edi ; dest
     pop esi ; source
     mov ecx, 0 ; index
-.copy_char:
+%%copy_char:
     mov  al, [esi + ecx] ; from source
     mov  [edi + ecx], al ; to dest
     inc  ecx
     cmp al, 0            ; hit terminator?
-    jnz .copy_char
+    jnz %%copy_char
 %endmacro
 DEFWORD copystr ; (sourceaddr, destaddr) copystr ()
     COPYSTR_CODE
@@ -419,7 +419,7 @@ DEFWORD return
 ENDWORD return, "return", (IMMEDIATE)
 
 ; Does what ENDWORD macro does, but into memory at runtime.
-DEFWORD semicolon
+%macro SEMICOLON_CODE 0
     ; End of Machine Code
     ; 'here' currently points to the end of the new word's
     ; machine code. We need to save that.
@@ -475,6 +475,9 @@ DEFWORD semicolon
     mov [here], eax
     ; return us to immediate mode now that we're done
     mov dword [mode], IMMEDIATE
+%endmacro
+DEFWORD semicolon
+    SEMICOLON_CODE
 ENDWORD semicolon, ";", (COMPILE | RUNCOMP)
 
 ; Takes an addr and number from stack, writes string
@@ -889,6 +892,50 @@ DEFWORD dec
     dec ecx
     push ecx
 ENDWORD dec, 'dec', (IMMEDIATE | COMPILE)
+
+; 'var' reserves a new space in memory (4 bytes for now) and
+; creates a new word that puts the ADDRESS of that memory on
+; the stack when it is called.
+DEFWORD var
+    mov dword [mode], COMPILE
+    ; get name from next token and store it...
+    EAT_SPACES_CODE
+    GET_TOKEN_CODE
+    push token_buffer ; source
+    push name_buffer  ; dest
+    COPYSTR_CODE      ; copy name into name_buffer
+
+    mov eax, [free]   ; get current free space addr
+    
+    ; Identical to 'quote' - so probably consolidate
+    ; into a macro if it works reliably
+    mov edx, [here]           ; compile var code here
+
+    push edx ; save it for semicolon!
+
+    mov byte [edx], 0x68      ; i386 opcode for PUSH imm32
+    mov dword [edx + 1], eax  ; address of var space
+    add edx, 5                ; update here
+    mov [here], edx
+    add eax, 4                ; update free pointer
+    mov [free], eax
+
+
+    SEMICOLON_CODE
+ENDWORD var, 'var', (IMMEDIATE | COMPILE)
+
+DEFWORD setvar
+    pop edi ; address from stack
+    pop eax ; value from stack
+    mov [edi], eax ; set it!
+ENDWORD setvar, 'set', (IMMEDIATE | COMPILE)
+
+DEFWORD getvar
+    pop esi ; address from stack
+    mov eax, [esi] ; get it!
+    push eax ; put it on the stack
+ENDWORD getvar, 'get', (IMMEDIATE | COMPILE)
+
 
 ; ----------------------------------------------------------
 ; PROGRAM START!

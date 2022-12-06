@@ -72,3 +72,59 @@ dec dec dec ps
 
     I'll need to figure out some more substantial stuff
     next. Variables, maybe. Or conditionals.
+
+    Next week: I chose to implement variables first. Then I
+    took some time off to rest a bit.
+
+    Now I've got a first stab at 'var'.
+
+    (I originally planned to have variables put their VALUES
+    on the stack when called, but after I started
+    implementing them, I've decided to follow yet another
+    Forth convention: variables will put their ADDRESSES on
+    the stack. It's just so much simpler and more flexible
+    that way.)
+
+    So far, 'var' borrows from three existing words:
+
+        1. From 'colon', it takes the idea of getting the
+           next token from the input stream as a name.
+
+        2. From 'quote', it takes the compiling of the
+           machine code to push the immediate value
+           containing the address of the variable's memory.
+
+        3. From 'semicolon' - actually, it doesn't borrow,
+           it flat out *includes* semicolon.
+
+    Does it work?
+
+var foo
+hex foo "Address of foo: $\n" print
+Address of foo: 804c16c
+var bar
+hex bar "Address of bar: $\n" print
+Address of bar: 804c189
+
+    Seems plausible! So I guess I need new words to get
+    values to/from that address and the stack.
+
+    I think I'll call them "get" and "set" rather than the !
+    ("store") and @ ("fetch") terminology from Forth.
+
+    They're easy to write in assembly. Just a handful of
+    instructions.
+
+    Here goes:
+
+var foo
+42 foo set
+: foo? foo "Foo contains $\n" print ;
+foo?
+./build.sh: line 34:  1465 Segmentation fault      ./$F
+Exit status: 139
+
+    Oops, I didn't even write that correctly. I forgot the
+    'get' in the definition of 'foo?'. But it should still
+    have printed the address of foo. So something has gone
+    awry. Now I know what I'm doing tomorrow night.
