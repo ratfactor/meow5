@@ -128,3 +128,45 @@ Exit status: 139
     'get' in the definition of 'foo?'. But it should still
     have printed the address of foo. So something has gone
     awry. Now I know what I'm doing tomorrow night.
+
+    Next night: Okay, let's see where this crashes using
+    GDB. First, Can I set and get the variable?
+
+Starting program: /home/dave/meow5/meow5
+var foo
+55 foo set
+foo get
+ps
+134525204 55
+
+    Yes! Okay, I've got some extra garbage on the stack
+    (looks like an address that I'm not cleaing up at some
+    point). I'll deal with that in good time.
+
+    But 55 on the stack totally means 'foo get' worked.
+    Neat!
+
+    And can I print it from a string in immediate mode?
+
+"foo is $\n" print
+foo is 55
+
+    No problemo.
+
+    Now in a compiled word where it crashed last night.
+    (This time I remembered to do a 'get' as well):
+
+: foo? foo get "foo=$\n" ;
+foo?
+
+Program received signal SIGSEGV, Segmentation fault.
+0x0804b114 in token_buffer ()
+
+    Yeah, so there we are. Apparently it crashes
+    while...what? Trying to execute code in token_buffer?
+
+    Well, I think the real problem is probably something
+    fundamental. Like, I haven't really thought through how
+    something works in a compiled word versus immediate
+    mode.
+
