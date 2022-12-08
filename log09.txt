@@ -170,3 +170,78 @@ Program received signal SIGSEGV, Segmentation fault.
     something works in a compiled word versus immediate
     mode.
 
+    Next night: Okay, LOL, so first of all, I never
+    implemented numeric literals for compile mode. So I
+    can't even test strings like this:
+
+$ mr
+: x 5 "five is $" print ;
+TODO: a new compile number word?Exit status: 0
+
+    And second of all, I don't think I ever tested number
+    interpolation (via '$' placeholders) in compiled words
+    either. Because that crashes:
+
+$ mr
+: x "stack has $" print ;
+5 x
+./build.sh: line 34:  1390 Segmentation fault      ./$F
+Exit status: 139
+
+    So I should probably get those working. I'll start with
+    the second problem and work my way back to variable
+    printing:
+
+        [ ] Get $ placeholders working in compiled words
+        [ ] Implement compiled number literals
+        [ ] Implement compiled variable get/set
+
+    I'm not sure yet if that third item is even needed.
+
+    Okay, so I'm reviewing my 'quote' definition and the
+    thing that immediately stands out is that since I call
+    'quote' from the interpreter in immediate mode, it
+    should be "baking" in the placeholder value when the
+    string is put in memory.
+
+    So, for example:
+
+        12
+
+        : foo "I have $ coins." ;
+
+        6
+
+        foo
+
+    Should be printing "I have 12 coins." instead of "I have 6
+    coins."
+
+    Instead, it's crashing.
+
+    But before I fix that, I think I should re-think how
+    this works. Because I'm pretty sure as a programmer, I
+    would expect to have 'foo' output "I have 6 coins."
+
+    I mean, both ways have advantages and disadvantages. But
+    doing "late binding" on the placeholder seems much more
+    sensible and useful. I want the string to reflect the
+    value on the stack when I *run* 'foo', not when I define
+    it.
+
+    So I think what I need is for 'print' to contain the
+    placeholder stuff, not 'quote'!
+
+    Yuck, that's a pretty significant chnage. But I don't
+    really see a way around it if I want the language to
+    make any sense.
+
+    So, the new TODO is gonna have to be:
+
+        [ ] Make 'quote' just store the string with '$'
+        [ ] Make 'print' evaluate '$' placeholders in
+            strings (at "run time")
+
+    I guess this will also require a new output buffer so I
+    can build up strings to output. Or maybe I store them in
+    my general "free" memory as temporary storage?
