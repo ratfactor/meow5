@@ -245,3 +245,40 @@ Exit status: 139
     I guess this will also require a new output buffer so I
     can build up strings to output. Or maybe I store them in
     my general "free" memory as temporary storage?
+
+    Next night: Okay, let's get to this.
+
+    Step one is to not have 'quote' replace placeholder '$'
+    with numbers anymore. I'll just comment them out for
+    now.
+
+    Here's the simple example that crashed above:
+
+: x "stack has $" print ;
+5 x
+stack has $
+
+    Easy.
+
+    Next, 'print' needs to print a number from the stack
+    when it sees a '$' in the string.
+
+    There are two ways I could do this:
+
+        1. Make yet *another* copy of this string for
+           temporary printing purposes that has the number
+           string incorporated and print that.
+
+        2. Print the string up to the place holder, then
+           print the number, then print the next bit of
+           string after the placeholder, etc.
+
+    Hmmm... I'm not *loving* either of those options, The
+    disadvantage of #1 is that I need to find another place
+    to store the string - ideally temporary. The
+    disadvantage of #2 is that it's more complicated.
+
+    I feel like #1 can't be made "nicer". But maybe with
+    some thoughtful design, #2 could be broken into
+    palatable chunks of functionality.
+

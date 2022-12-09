@@ -545,8 +545,8 @@ DEFWORD quote
     je .end_quote
     cmp al, '\'         ; escape sequence
     je .insert_esc
-    cmp al, '$'         ; numeric placeholder
-    je .insert_num
+;    cmp al, '$'         ; numeric placeholder
+;    je .insert_num
     mov [edi], al         ; copy char to desination
     inc esi             ; next source char
     inc edi             ; next desination pos
@@ -576,7 +576,7 @@ DEFWORD quote
         inc edi
         jmp .copy_char
     .esc4:
-.insert_num:
+;.insert_num:
     ; We have been given a $ placeholder, so now we'll pop a
     ; value (4-byte number) off the stack and write it as a
     ; string, continuing the string we're copying right now.
@@ -584,24 +584,24 @@ DEFWORD quote
     ; num2str takes two things on the stack: the number to
     ; convert, and a destination address for writing the
     ; string. So we put our current write addr there.
-    pop eax ; get number to convert from stack...
-    push edi ; preserve before num2str
-    push edx
-    push esi
-    push eax     ; num2str: num to convert
-    push edi     ; num2str: destination address
-    NUM2STR_CODE
-    pop eax      ; chars written
-    pop esi ; restore after num2str
-    pop edx
-    pop edi
+;    pop eax ; get number to convert from stack...
+;    push edi ; preserve before num2str
+;    push edx
+;    push esi
+;    push eax     ; num2str: num to convert
+;    push edi     ; num2str: destination address
+;    NUM2STR_CODE
+;    pop eax      ; chars written
+;    pop esi ; restore after num2str
+;    pop edx
+;    pop edi
     ; Now add bytes written to offset destination address.
     ; (The '$' placeholder took up 1 byte of space in the
     ; source string, but we may have written multple bytes
     ; in the destination string.)
-    add edi, eax
-    inc esi         ; move past '$' or we'll be stuck!
-    jmp .copy_char  ; loop 
+;    add edi, eax
+;    inc esi         ; move past '$' or we'll be stuck!
+;    jmp .copy_char  ; loop 
 .end_quote:
     lea eax, [esi + 1]          ; get next input position
     mov [input_buffer_pos], eax ; save it
