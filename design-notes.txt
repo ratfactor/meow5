@@ -12,9 +12,9 @@ DONE: use linked list like i learned how to implement in
 jonesforth
 
 ===========================================================
-Add a regression test suite to test all functionality as I
-add it (probably best added after I make this take input
-from STDIN!)
+STARTED: Add a regression test suite to test all
+functionality as I add it (probably best added after I make
+this take input from STDIN!)
 
 ===========================================================
 Display free memory and bytes compiled so far - on start up

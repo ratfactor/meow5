@@ -282,3 +282,42 @@ stack has $
     some thoughtful design, #2 could be broken into
     palatable chunks of functionality.
 
+    Next night: Okay, after some painful stack and register
+    management, I've got it!
+
+var foo
+: foo? foo get "foo=$\n" print$ ;
+55 foo set
+foo?
+foo=55
+
+    Okay, so I stuck with the plan to put the '$'
+    placeholder functionality in the printing mechanism
+    rather than the string building mechanism ('quote').
+
+    Rather than turn 'print' into an abomination, I simply
+    added a 'print$' word that does number interpolation.
+
+    Here you can see 'print' vs 'print$' for comparison:
+
+42
+
+"--$--" print
+--$--
+
+"--$--" print$
+--42--
+
+    And 'print$' really wasn't too bad. I mean, it's still
+    quite compact. It was no fun to write.
+
+    I like how it cleaned up 'quote' a bit as well. That
+    word was way too long.
+
+    Okay, I need to add a *bunch* of stuff to my test script
+    next to double-check that what I have so far is
+    rock-solid.
+
+    I already know that something (semicolon?) is leaving an
+    address on the stack that it shouldn't. So I'll be
+    fixing that as well.

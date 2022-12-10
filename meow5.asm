@@ -194,17 +194,22 @@ DEFWORD strlen ; (straddr) strlen (straddr len)
     STRLEN_CODE
 ENDWORD strlen, "strlen", (IMMEDIATE | COMPILE)
 
+; Prints a string by address and length
+%macro LEN_PRINT_CODE 0
+    pop edx            ; strlen from stack
+    pop ecx            ; string address from stack
+    mov ebx, STDOUT    ; write destination file
+    mov eax, SYS_WRITE ; syscall
+    int 0x80           ; interrupt to linux!
+%endmacro
+
 ; Prints a null-terminated string by address on stack.
 %macro PRINT_CODE 0
     pop eax
     push eax ; one for strlen
     push eax ; one for write
-    STRLEN_CODE        ; (after: straddr, len)
-    mov ebx, STDOUT    ; write destination file
-    pop edx            ; strlen
-    pop ecx            ; string address
-    mov eax, SYS_WRITE ; syscall
-    int 0x80           ; interrupt to linux!
+    STRLEN_CODE  ; (after: straddr, len)
+    LEN_PRINT_CODE
 %endmacro
 DEFWORD print ; (straddr) print ()
     PRINT_CODE
@@ -545,8 +550,6 @@ DEFWORD quote
     je .end_quote
     cmp al, '\'         ; escape sequence
     je .insert_esc
-;    cmp al, '$'         ; numeric placeholder
-;    je .insert_num
     mov [edi], al         ; copy char to desination
     inc esi             ; next source char
     inc edi             ; next desination pos
@@ -576,32 +579,6 @@ DEFWORD quote
         inc edi
         jmp .copy_char
     .esc4:
-;.insert_num:
-    ; We have been given a $ placeholder, so now we'll pop a
-    ; value (4-byte number) off the stack and write it as a
-    ; string, continuing the string we're copying right now.
-    ;
-    ; num2str takes two things on the stack: the number to
-    ; convert, and a destination address for writing the
-    ; string. So we put our current write addr there.
-;    pop eax ; get number to convert from stack...
-;    push edi ; preserve before num2str
-;    push edx
-;    push esi
-;    push eax     ; num2str: num to convert
-;    push edi     ; num2str: destination address
-;    NUM2STR_CODE
-;    pop eax      ; chars written
-;    pop esi ; restore after num2str
-;    pop edx
-;    pop edi
-    ; Now add bytes written to offset destination address.
-    ; (The '$' placeholder took up 1 byte of space in the
-    ; source string, but we may have written multple bytes
-    ; in the destination string.)
-;    add edi, eax
-;    inc esi         ; move past '$' or we'll be stuck!
-;    jmp .copy_char  ; loop 
 .end_quote:
     lea eax, [esi + 1]          ; get next input position
     mov [input_buffer_pos], eax ; save it
@@ -728,21 +705,66 @@ ENDWORD number, 'number', (IMMEDIATE | COMPILE)
 %macro PRINTNUM_CODE 0
     ; param2 address desination for number str
     mov eax, [free] ; use free space temporarily
-    push eax
-    NUM2STR_CODE
-    pop ebx ; chars written
+    push eax ; addr for num2str
+    NUM2STR_CODE ; leaves length of string
+    pop ebx
+    
+    mov eax, [free]
+    push eax ; addr
+    push ebx ; len
+    LEN_PRINT_CODE
+
+    ; TODO: now that I have LEN_PRINT_CODE, don't
+    ; have to do this anymore
+
+;    pop ebx ; chars written
     ; null-terminate the number string!
-    mov eax, [free]
-    add eax, ebx
-    mov eax, 0
+;    mov eax, [free]
+;    add eax, ebx
+;    mov eax, 0
     ; print the number
-    mov eax, [free]
-    push eax
-    PRINT_CODE
+;    mov eax, [free]
+;    push eax
+;    PRINT_CODE
 %endmacro
 DEFWORD printnum
     PRINTNUM_CODE
 ENDWORD printnum, 'printnum', (IMMEDIATE | COMPILE)
+
+DEFWORD print_fmt
+    pop esi ; string addr from stack is source pointer
+    mov ecx, 0   ; length of string to print
+.examine_char:
+    mov al, [esi + ecx]  ; get next char
+    cmp al, '$'
+    je .print_num
+    cmp al, 0 ; regular end of string!
+    je .print_the_rest
+    inc ecx              ; neither, keep going
+    jmp .examine_char
+.print_num:
+    ; first print the string segment before the num
+    pop eax  ; get number to print from stack
+    push esi ; str addr (save a copy)
+    push ecx ; str len  (save a copy)
+    push eax ; num to print
+    push esi ; str addr
+    push ecx ; str len
+    LEN_PRINT_CODE
+    PRINTNUM_CODE ; print number from stack
+    pop ecx ; restore str len
+    pop esi ; restore str addr
+    ; reset string to *after* the '$' placeholder and
+    ; keep printing
+    lea esi, [esi + ecx + 1]
+    mov ecx, 0
+    jmp .examine_char
+.print_the_rest:
+    ; now we just need to print a "normal" string at
+    ; the end, so push the start address and print!
+    push esi ; print just needs start address
+    PRINT_CODE
+ENDWORD print_fmt, 'print$', (IMMEDIATE | COMPILE)
 
 ; Given a mode (dword) on the stack, prints the matching
 ; modes (immediate/compile/runcomp).
