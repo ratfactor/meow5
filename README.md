@@ -10,14 +10,14 @@ functions as a vague todo/done list).
 The language is now fully interactive!
 
 ```
-> "Hello world!\n" print
+"Hello world!" say
 Hello world!
 
-> : meow "Meow. " print
-> meow
+: meow "Meow. " print ;
+meow
 Meow.
 
-> : meow5 meow meow meow meow meow ;
+: meow5 meow meow meow meow meow ;
 Meow. Meow. Meow. Meow. Meow.
 ```
 

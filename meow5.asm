@@ -731,7 +731,7 @@ DEFWORD printnum
     PRINTNUM_CODE
 ENDWORD printnum, 'printnum', (IMMEDIATE | COMPILE)
 
-DEFWORD print_fmt
+%macro PRINT_FMT_CODE 0
     pop esi ; string addr from stack is source pointer
     mov ecx, 0   ; length of string to print
 .examine_char:
@@ -764,7 +764,19 @@ DEFWORD print_fmt
     ; the end, so push the start address and print!
     push esi ; print just needs start address
     PRINT_CODE
+%endmacro
+DEFWORD print_fmt
+    PRINT_FMT_CODE
 ENDWORD print_fmt, 'print$', (IMMEDIATE | COMPILE)
+
+DEFWORD say
+    PRINT_FMT_CODE
+    mov eax, [free]
+    mov byte [eax], 0xa ; '\n'
+    push eax    ; addr of string
+    push 1      ; length to print
+    LEN_PRINT_CODE
+ENDWORD say, 'say', (IMMEDIATE | COMPILE)
 
 ; Given a mode (dword) on the stack, prints the matching
 ; modes (immediate/compile/runcomp).

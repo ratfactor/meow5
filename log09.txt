@@ -321,3 +321,15 @@ foo=55
     I already know that something (semicolon?) is leaving an
     address on the stack that it shouldn't. So I'll be
     fixing that as well.
+
+    Wait, I almost forgot the fun part: I was going to add a
+    new printing convenience word to wrap up 'print$' plus a
+    newline: 'say'. I love convenience!
+
+1 2 + "I have $ coins." say
+I have 3 coins.
+
+    Ah! I love it so much. Yes! What a difference one little
+    handy word makes.
+
+    I'm going update my hello world examples with 'say' now.
