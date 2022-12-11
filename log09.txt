@@ -333,3 +333,90 @@ I have 3 coins.
     handy word makes.
 
     I'm going update my hello world examples with 'say' now.
+
+    Done.
+
+    And now a confession: I've not been happy with my
+    Expect-based tests. Expect waits for the input you asked
+    for (until a timeout is reached) and it is perfectly okay with getting things you
+    *didn't* ask for. Which makes plenty of sense for
+    interacting with some applications.
+
+    But that does fit what I want to see, which is *exact*
+    output. And I want *immediate* failure when something
+    other than that is provided.
+
+    No doubt I can force Expect to do that, but I'm gonna
+    give shell scripts a shot.
+
+    First of all, I can't remember if I've tried piping
+    input into my interpreter yet, so here goes:
+
+$ echo '"Hello" say' | ./meow5
+Hello
+Goodbye.
+
+    And we can make sure that I get my exact output with a
+    grep search:
+
+$ echo '"Hello" say' | ./meow5 | grep '^Hello$'
+Hello
+$ echo $?
+0
+
+    grep's 0 exit status means match was found.
+
+$ echo '"Hello" say' | ./meow5 | grep '^foobar$'
+$ echo $?
+1
+
+    And 1 exit status is not found.
+
+    So scripting this is no problem. Here's my shell
+    function:
+
+        function try {
+            # -q tells grep to not echo, just return match status
+            if echo "$1" | ./meow5 | grep -q "^$2\$"
+            then
+                printf '.'
+            else
+                echo
+                echo "Error!"
+                echo "Wanted:"
+                echo "-------------------------------------------"
+                echo $2
+                echo "-------------------------------------------"
+                echo
+                echo "But got:"
+                echo "-------------------------------------------"
+                echo "$1" | ./meow5
+                echo "-------------------------------------------"
+                echo
+            fi
+        }
+
+    And some simple tests:
+
+        try '"Hello" say' 'Hello'
+        try '"Hello" say' 'beans'
+
+$ ./test.sh
+.
+Error!
+Wanted:
+-------------------------------------------
+beans
+-------------------------------------------
+
+But got:
+-------------------------------------------
+Hello
+Goodbye.
+-------------------------------------------
+
+    Cool, then I can re-write the Expect script with this
+    and verify the functionality so far.
+
+    Oh, and implement compiled numeric literals. That's
+    still an open TODO.
