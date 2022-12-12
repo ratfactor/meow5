@@ -322,6 +322,8 @@ foo=55
     address on the stack that it shouldn't. So I'll be
     fixing that as well.
 
+        [ ] Fix whatever is leaving an addr on stack
+
     Wait, I almost forgot the fun part: I was going to add a
     new printing convenience word to wrap up 'print$' plus a
     newline: 'say'. I love convenience!
@@ -420,3 +422,78 @@ Goodbye.
 
     Oh, and implement compiled numeric literals. That's
     still an open TODO.
+
+    Next night: Cool as a consequence of the new test
+    script, I've fixed the address being left on the stack
+    (I had guessed 'semicolon', but it was actually 'colon'.
+    I was pushing the source address to copy the token
+    string for the new word/function name, but 'gettoken'
+    was already doing that, so it was redundant.)
+
+    I also implemented numeric literals in compile mode. I'm
+    getting a LOT of mileage out of that x86 opcode to push
+    an immediate 32 bit value onto the stack!
+
+    Now my tests look like:
+
+#   Input                  Expected Result
+#   -------------------    ------------------------
+try 'ps'                   ''
+try '5 ps'                 '5 ' # note space
+try '5 5 5 + ps'           '5 10 '
+try '9 2 * ps'             '18 '
+try '18 5 / ps'            '3 3 '
+try '5 2 - ps'             '3 '
+try '"Hello$\\\$\n" print' 'Hello$\\$'
+try '"Hello" say'          'Hello'
+try ': five 5 ; five ps'   '5 '
+try ': m "M." print ; m '' say' 'M.'
+try ': m "M." print ; : m5 m m m m m ; m5 '' say' 'M.M.M.M.M.'
+
+    And they all pass:
+
+$ ./test.sh
+...........
+Passed!
+
+    However, it looks like 'var' is pushing one to many
+    addresses because there's still one on my precious stack
+    that fouls up this test:
+
+$ ./test.sh
+...........
+Error!
+Wanted:
+-------------------------------------------
+var x 4 x set x get x ps
+5 
+-------------------------------------------
+
+But got:
+-------------------------------------------
+var x 4 x set x get x ps
+134525172 4 134529332 
+Goodbye.
+-------------------------------------------
+
+    But I'm getting there! Feeling good about having these
+    tests to check against regressions as i add features.
+
+    I'll debug the stack issue with a bunch of DEBUG
+    statements to narrow it down like I did for 'colon'.
+
+    ...
+
+
+    I'm compiling this log's accumulated TODO list here.
+    Will check 'em all off very soon!
+
+        [ ] Get $ placeholders working in compiled words
+        [ ] Implement compiled number literals
+        [ ] Implement compiled variable get/set
+
+        [ ] Make 'quote' just store the string with '$'
+        [ ] Make 'print' evaluate '$' placeholders in
+            strings (at "run time")
+        [ ] Fix whatever is leaving an addr on stack
+

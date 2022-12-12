@@ -407,8 +407,7 @@ DEFWORD colon
     mov dword [mode], COMPILE
     ; get name from next token and store it...
     EAT_SPACES_CODE
-    GET_TOKEN_CODE
-    push token_buffer ; source
+    GET_TOKEN_CODE     ; leaves source addr for copystr
     push name_buffer  ; dest
     COPYSTR_CODE      ; copy name into name_buffer
     ; copy the here pointer so we have the start address
@@ -670,7 +669,7 @@ DEFWORD decimal
 ENDWORD decimal, 'decimal', (IMMEDIATE | COMPILE)
 
 ; see if token starts with number. if it does, parse it
-%macro NUMBER_CODE 0
+DEFWORD number
     GET_TOKEN_CODE
     STR2NUM_CODE
     pop eax              ; return value from str2num
@@ -680,12 +679,18 @@ ENDWORD decimal, 'decimal', (IMMEDIATE | COMPILE)
     je .compile_number
     ; We got number in IMMEDIATE mode, so just keep the
     ; value on the stack and keep going!
-    jmp %%done
+    jmp .done
 .compile_number:
-    ; note: number is still on stack
-    PRINTSTR 'TODO: a new compile number word?'
-    push 0 ; exit status (happy)
-    EXIT_CODE
+    ; like 'quote' and 'var', this writes a raw x86
+    ; opcode to push an immediate value on the stack
+    ; at runtime
+    pop eax ; get number from stack
+    mov edx, [here]          ; compile var code here
+    mov byte [edx], 0x68     ; i386 opcode for PUSH imm32
+    mov dword [edx + 1], eax ; the number literal
+    add edx, 5               ; update here
+    mov [here], edx
+    jmp .done
 .invalid_number:
     ; If we got here, there was a token that started with a
     ; digit, but could not be parsed as a number. We're
@@ -695,10 +700,7 @@ ENDWORD decimal, 'decimal', (IMMEDIATE | COMPILE)
     CALLWORD print
     PRINTSTR `" as a number.\n`
     EXIT_CODE
-%%done:
-%endmacro
-DEFWORD number
-    NUMBER_CODE
+.done:
 ENDWORD number, 'number', (IMMEDIATE | COMPILE)
 
 ; Call with num to to be printed on the stack
@@ -708,24 +710,10 @@ ENDWORD number, 'number', (IMMEDIATE | COMPILE)
     push eax ; addr for num2str
     NUM2STR_CODE ; leaves length of string
     pop ebx
-    
     mov eax, [free]
     push eax ; addr
     push ebx ; len
     LEN_PRINT_CODE
-
-    ; TODO: now that I have LEN_PRINT_CODE, don't
-    ; have to do this anymore
-
-;    pop ebx ; chars written
-    ; null-terminate the number string!
-;    mov eax, [free]
-;    add eax, ebx
-;    mov eax, 0
-    ; print the number
-;    mov eax, [free]
-;    push eax
-;    PRINT_CODE
 %endmacro
 DEFWORD printnum
     PRINTNUM_CODE
