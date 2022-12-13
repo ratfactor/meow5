@@ -1,0 +1,9 @@
+    Hello! So it seems to me that there are two major paths
+    to decide between for the thing to add next:
+
+        * Control structures (if/else, loops)
+        * Write compiled programs to ELF executables
+
+    Both will be challenging. I'm leaning towards ELF at the
+    moment. We'll see what I think when I come back tomorrow
+    night.

@@ -466,7 +466,7 @@ Error!
 Wanted:
 -------------------------------------------
 var x 4 x set x get x ps
-5 
+4 
 -------------------------------------------
 
 But got:
@@ -482,18 +482,69 @@ Goodbye.
     I'll debug the stack issue with a bunch of DEBUG
     statements to narrow it down like I did for 'colon'.
 
-    ...
+    Next night: Yup, in fact it was the exact same bug I had
+    in 'colon'. Shame.
 
+    By the way, I found both of these by just peppering the
+    offending area my DEBUG macros and printing the value of
+    the esp register to see where something was being left
+    on the stack that shouldn't have been. It looked like
+    this once I fixed it:
 
-    I'm compiling this log's accumulated TODO list here.
-    Will check 'em all off very soon!
+var x
+var start: ffafb9c0
+var copys: ffafb9c0
+var push:  ffafb9bc
+var end:   ffafb9c0
+4 x set
+x get ps
+4
+x ps
+4 134529376
+get ps
+4 4
 
-        [ ] Get $ placeholders working in compiled words
-        [ ] Implement compiled number literals
-        [ ] Implement compiled variable get/set
+    Now I've fixed my test:
 
-        [ ] Make 'quote' just store the string with '$'
-        [ ] Make 'print' evaluate '$' placeholders in
+        try 'var x 4 x set x get ps' '4 '
+
+    And all is well:
+
+$ mt
+............
+Passed!
+
+    And to finish it off, I need to test using (not
+    creating...yet) variables within compiled words.
+
+    The test:
+
+        var x 
+        4 x set
+        : x? x get "x=$" say ;
+        x?
+
+    Expected result:
+
+        x=4
+
+    Crossing fingers:
+
+$ mt
+.............
+Passed!
+
+    Yay!
+
+    So it looks like that checks everything off for this
+    log:
+
+        [x] Get $ placeholders working in compiled words
+        [x] Implement compiled number literals
+        [x] Implement compiled variable get/set
+        [x] Make 'quote' just store the string with '$'
+        [x] Make 'print' evaluate '$' placeholders in
             strings (at "run time")
-        [ ] Fix whatever is leaving an addr on stack
+        [x] Fix whatever is leaving an addr on stack (twice)
 
+    See you in log10.txt!

@@ -923,26 +923,19 @@ DEFWORD var
     ; get name from next token and store it...
     EAT_SPACES_CODE
     GET_TOKEN_CODE
-    push token_buffer ; source
     push name_buffer  ; dest
     COPYSTR_CODE      ; copy name into name_buffer
-
     mov eax, [free]   ; get current free space addr
-    
     ; Identical to 'quote' - so probably consolidate
     ; into a macro if it works reliably
     mov edx, [here]           ; compile var code here
-
     push edx ; save it for semicolon!
-
     mov byte [edx], 0x68      ; i386 opcode for PUSH imm32
     mov dword [edx + 1], eax  ; address of var space
     add edx, 5                ; update here
     mov [here], edx
     add eax, 4                ; update free pointer
     mov [free], eax
-
-
     SEMICOLON_CODE
 ENDWORD var, 'var', (IMMEDIATE | COMPILE)
 
