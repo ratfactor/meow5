@@ -7,3 +7,79 @@
     Both will be challenging. I'm leaning towards ELF at the
     moment. We'll see what I think when I come back tomorrow
     night.
+
+    Two nights later: Yup, gonna try to write an ELF
+    executable. This is gonna be cool!
+
+    First, I need to test writing a file. Then write the ELF
+    header, then the contents of a word.
+
+    I'll start by having 'make_elf' take a token (will use
+    as an output filename for writing the executable and,
+    later, the word get the machine code from).
+
+    Then I'll write the string 'ELF' to that file. (Which is
+    very appropriate because Bytes 2-5 of a _real_ ELF
+    header are that string.)
+
+    Next night: So I've got my test 'make_elf' and it is
+    supposed to be writing to whatever filename you want:
+
+        make_elf foo
+
+    That should write the string 'ELF' to a file called
+    'foo', but it's not. So I've inserted a DEBUG to see
+    what the fd returned from 'open' is:
+
+$ mr
+make_elf foo
+new fd: fffffffe
+Goodbye.
+Exit status: 0
+
+    Yeah, that's definitely an error.
+
+    While looking for how to decode that error (the open(2)
+    man page explains the errors, but they're all C mnemonic
+    constants, of course), I came across this excellent
+    suggestion on SO: https://stackoverflow.com/a/68155464
+
+    Which was to use strace to decode the error for me!
+
+$ strace ./meow5
+execve("./meow5", ["./meow5"], 0x7fff2d4ec190 /* 60 vars */) = 0
+[ Process PID=2579 runs in 32 bit mode. ]
+read(0, make_elf foo
+"make_elf foo\n", 1024)         = 13
+open("foo", O_WRONLY|0xc)               = -1 ENOENT (No such file or directory)
+write(1, "new fd: ", 8new fd: )                 = 8
+write(1, "fffffffe\n", 9fffffffe
+)               = 9
+write(-2, "ELF", 3)                     = -1 EBADF (Bad file descriptor)
+read(0, "", 1024)                       = 0
+write(1, "Goodbye.\n", 9Goodbye.
+)               = 9
+exit(0)                                 = ?
++++ exited with 0 +++
+
+    Huh, so something's wrong with my attempt to open the
+    output file with write-only, create, and truncate flags.
+
+    Here's what I'm sending:
+
+        ; From open(2) man page:
+        ;   A call to creat() is equivalent to calling open()
+        ; with flags equal to O_CREAT|O_WRONLY|O_TRUNC.
+        ; I got the flags by searching all of /usr/include and
+        ; finding /usr/include/asm-generic/fcntl.h
+        ; That yielded (along with bizarre comment "not fcntl"):
+        ;   #define O_CREAT   00000100
+        ;   #define O_WRONLY  00000001
+        ;   #define O_TRUNC   00001000
+        ; Hence this flag value for 'open':
+        mov ecx, 1101b
+
+    But from the strace above, it looks like it sees
+    O_WRONLY and...0xC - which is, indeed 1100...
+
+    Sounds like I've got a mystery for tomorrow night.

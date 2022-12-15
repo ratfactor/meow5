@@ -15,6 +15,9 @@
 %assign SYS_EXIT 1
 %assign SYS_READ 3
 %assign SYS_WRITE 4
+%assign SYS_OPEN 5
+
+; TODO add SYS_CREATE 8
 
 ; ----------------------------------------------------------
 ; BSS - reserved space
@@ -951,6 +954,42 @@ DEFWORD getvar
     push eax ; put it on the stack
 ENDWORD getvar, 'get', (IMMEDIATE | COMPILE)
 
+DEFWORD make_elf
+    EAT_SPACES_CODE
+    GET_TOKEN_CODE ; leaves token addr on stack
+    pop ebx ; token addr for open
+    push ebx ; save a copy for 'find' later
+    ; From open(2) man page:
+    ;   A call to creat() is equivalent to calling open()
+    ; with flags equal to O_CREAT|O_WRONLY|O_TRUNC.
+    ; I got the flags by searching all of /usr/include and
+    ; finding /usr/include/asm-generic/fcntl.h
+    ; That yielded (along with bizarre comment "not fcntl"):
+    ;   #define O_CREAT   00000100
+    ;   #define O_WRONLY  00000001
+    ;   #define O_TRUNC   00001000
+    ; Hence this flag value for 'open':
+    mov ecx, 1101b ; flags for open (see above)
+    ; ebx contains null-terminated word name (see above)
+    mov eax, SYS_OPEN
+    int 80h ; now eax will contain the new file desc.
+
+    DEBUG "new fd: ", eax
+
+    ; TODO: if open failed, print an error message and
+    ;       skip to the end.
+
+    ; test write 'ELF', use free memory as scratch space
+    mov edx, 3 ; bytes to write
+    mov edi, [free]
+    mov byte [edi], 'E'
+    mov byte [edi + 1], 'L'
+    mov byte [edi + 2], 'F'
+    mov ecx, edi ; addr of 'ELF' string to write
+    mov ebx, eax ; the fd for writing (opened/created above)
+    mov eax, SYS_WRITE
+    int 80h
+ENDWORD make_elf, 'make_elf', (IMMEDIATE)
 
 ; ----------------------------------------------------------
 ; PROGRAM START!
