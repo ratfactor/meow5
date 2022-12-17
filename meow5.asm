@@ -968,9 +968,11 @@ DEFWORD make_elf
     ;   #define O_CREAT   00000100
     ;   #define O_WRONLY  00000001
     ;   #define O_TRUNC   00001000
+    ; which are apparently octal values???
     ; Hence this flag value for 'open':
-    mov ecx, 1101b ; flags for open (see above)
+    mov ecx, (0100o | 0001o | 1000o)
     ; ebx contains null-terminated word name (see above)
+    mov edx, 666o ; mode (permissions)
     mov eax, SYS_OPEN
     int 80h ; now eax will contain the new file desc.
 

@@ -83,3 +83,70 @@ exit(0)                                 = ?
     O_WRONLY and...0xC - which is, indeed 1100...
 
     Sounds like I've got a mystery for tomorrow night.
+
+    Two nights later: I bet somebody out there is
+    screaming. Ha ha. Those numbers are in octal, not binary
+    (despite looking for all the world like bit flags).
+
+    So I fixed that one night. Then I had to learn how to
+    set the mode (permissions), which was, like, freakishly
+    hard to find online. All the 'open' examples I found
+    were opening existing files. But since CREAT is an
+    option, obviously there was a way to do it...
+
+    The search "32 x86 assembly linux syscall table" is the
+    blessed way to ask the major search engines.
+
+    The answer is: the mode bits (in the usual unix octal
+    owner/group/all format) go in register edx. So:
+
+        ; ebx contains null-terminated word name (see above)
+        mov ecx, (0100o | 0001o | 1000o)  ; open flags
+        mov edx, 666o                     ; mode (permissions)
+        mov eax, SYS_OPEN
+        int 80h ; now eax will contain the new file desc.
+
+    And when I went to test it, I was sleepy and forgot that
+    since I was running the binary from strace, it wasn't
+    gonna re-build from source like my shell aliases 'mr',
+    'mb', 'mt' do, so I couldn't figure out why it wasn't
+    working...
+
+    ...until I woke up in the middle of the night with the
+    realization.
+
+    Anyway, next morning, here goes:
+
+$ strace ./meow5
+execve("./meow5", ["./meow5"], 0x7fff56d5ec40 /* 60 vars */) = 0
+[ Process PID=1377 runs in 32 bit mode. ]
+read(0, make_elf foo
+"make_elf foo\n", 1024)         = 13
+open("foo", O_WRONLY|O_CREAT|O_TRUNC, 0666) = 3
+write(1, "new fd: ", 8new fd: )                 = 8
+write(1, "00000003\n", 900000003
+)               = 9
+write(3, "ELF", 3)                      = 3
+read(0, "", 1024)                       = 0
+write(1, "Goodbye.\n", 9Goodbye.
+)               = 9
+exit(0)                                 = ?
++++ exited with 0 +++
+
+    Awesome, we can see the flags being correctly decoded
+    and the mode/permission param:
+
+        open("foo", O_WRONLY|O_CREAT|O_TRUNC, 0666) = 3
+
+    So I've learned that strace rules for this sort of thing!
+
+    But did it work?
+
+$ cat foo
+ELF
+
+    Yahoo! Ha ha, I have written a string to a new file.
+    Jeez, that was way harder than I expected.
+
+    But now I can actually try writing an ELF header. I'm
+    excited.
