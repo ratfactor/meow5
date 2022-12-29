@@ -16,6 +16,7 @@
 %assign SYS_READ 3
 %assign SYS_WRITE 4
 %assign SYS_OPEN 5
+%assign SYS_CLOSE 6
 
 ; TODO add SYS_CREATE 8
 
@@ -954,6 +955,71 @@ DEFWORD getvar
     push eax ; put it on the stack
 ENDWORD getvar, 'get', (IMMEDIATE | COMPILE)
 
+
+; *******************************************
+; *     Attempt to write an ELF header!     *
+; *******************************************
+
+section .data
+elf_header:
+    ; ELF Identification (16 bytes)
+    db 0x7F,'ELF' ; Magic String
+    db          1 ; "File class" 32 bit
+    db          1 ; "Data encoding" 1=LSB (x86 little endian)
+    db          1 ; "File version" ELF version (1="current")
+    times 9 db  0 ; padding (to fill up 16 bytes)
+    ; Section Header Table
+    dw          2 ; type      - 2="Executable file"
+    dw          3 ; machine   - 3="Intel 80386"
+    dd          1 ; version   - 1="Current"
+    dd 0x08048000 ; entry     - Execution start address
+    dd  phdr - $$ ; phoff     - section start to program header
+    dd          0 ; shoff     - 0 for no section header
+    dd          0 ; flags     - processor-specific flags
+    dw   hdr_size ; ehsize    - this header bytes, see below
+    ; We want the "program header" because that says how to
+    ; layout stuff in memory when we run. we do NOT need the
+    ; "section header" because that's more for compilers and
+    ; linkers.
+    dw  phdr_size ; phentsize - program header size
+    dw          1 ; phnum     - program header count
+    dw          0 ; shentsize - section header size (none)
+    dw          0 ; shnum     - section header count
+    dw          0 ; shstrndx  - section header offset
+    hdr_size equ $ - elf_header ; calulate elf header size
+
+    ; This program header is for the compiled (inlined) word
+    ; machine code that we'll be writing out to make the
+    ; program. So the "file size" and "mem size" should be
+    ; equal.
+
+phdr: ; Program Header
+    dd         1 ; p_type   - 1=PT_LOAD, map file to memory
+    dd         0 ; p_offset - bof to first byte of segment
+    dd 0x8048100 ; p_vaddr  - virt addr of 1st byte of segment
+    dd         0 ; p_paddr  - phys addr (can probably ignore)
+
+    ; TODO: Before writing out this elf header, these two
+    ; bytes/sizes need to be written.
+
+prog_bytes1:
+    dd         0 ; p_filesz - bytes file image of segment
+prog_bytes2:
+    dd         0 ; p_memsz  - bytes memory image of segment
+    dd         5 ; p_flags  -
+    dd         0 ; p_align  - no alignment required
+    phdr_size equ $ - phdr ; calculate program header size
+
+    ; TODO: I'm pretty sure I need another program header
+    ; for the data segment, which I think fits both the
+    ; initialized and uninitialized memory for storage.
+    ;
+    ; Don't forget to update the 'phnum' from 1 to 2.
+    elf_header_size equ $ - elf_header
+
+
+section .text
+
 DEFWORD make_elf
     EAT_SPACES_CODE
     GET_TOKEN_CODE ; leaves token addr on stack
@@ -981,15 +1047,22 @@ DEFWORD make_elf
     ; TODO: if open failed, print an error message and
     ;       skip to the end.
 
-    ; test write 'ELF', use free memory as scratch space
-    mov edx, 3 ; bytes to write
-    mov edi, [free]
-    mov byte [edi], 'E'
-    mov byte [edi + 1], 'L'
-    mov byte [edi + 2], 'F'
-    mov ecx, edi ; addr of 'ELF' string to write
+    ; TODO: get the size of the word we'll be writing and
+    ;       overwrite the program section's size
+
+    ; Write ELF header
+    ;
+    mov edx, elf_header_size ; bytes to write
+    mov ecx, elf_header      ; source address
     mov ebx, eax ; the fd for writing (opened/created above)
     mov eax, SYS_WRITE
+    int 80h
+
+    ; TODO: write the word data after the header
+    ;       (remember: we got the size above...)
+
+    ; ebx still contains the fd we opened, now close it
+    mov eax, SYS_CLOSE
     int 80h
 ENDWORD make_elf, 'make_elf', (IMMEDIATE)
 
