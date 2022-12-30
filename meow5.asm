@@ -255,7 +255,7 @@ DEFWORD is_runcomp ; (flags) is_runcomp (true/false)
     IS_RUNCOMP_CODE
 ENDWORD is_runcomp, "is_runcomp", (IMMEDIATE | COMPILE)
 
-DEFWORD find
+%macro FIND_CODE 0
     pop ebp ; param1 - start of word string to find
     ; in-word register use:
     ;   al  - to-find name character being checked
@@ -264,38 +264,41 @@ DEFWORD find
     ;   edx - dictionary list pointer
     ; search backwards from last word
     mov edx, [last]
-.test_word:
+%%test_word:
     cmp edx, 0  ; a null pointer (0) is end of list
-    je .not_found
+    je %%not_found
     ; First, see if this word is for the mode we're
     ; currently in (IMMEDIATE vs COMPILE):
     mov eax, [mode]
     and eax, [edx + T_FLAGS] ; see if mode bit is set in word tail
     cmp eax, 0
-    jz .try_next_word ; bit wasn't set to match this mode
+    jz %%try_next_word ; bit wasn't set to match this mode
     ; Now we'll compare name to find vs this dictionary name
     ; (ebx vs edx) byte-by-byte until a mismatch or one hits
     ; a 0 terminator first.  Only having all correct letters
     ; AND hitting 0 at the same time is a match.
     lea ebx, [edx + T_NAME] ; set dict. word name pointer
     mov ecx, 0          ; reset byte offset counter
-.compare_names_loop:
+%%compare_names_loop:
 	mov al, [ebp + ecx] ; get next to-find name byte
     cmp al, [ebx + ecx] ; compare with next dict word byte
-    jne .try_next_word  ; found a mismatch!
+    jne %%try_next_word  ; found a mismatch!
     cmp al, 0           ; both hit 0 terminator at same time
-    je .found_it
+    je %%found_it
 	inc ecx
-	jmp .compare_names_loop
-.try_next_word:
+	jmp %%compare_names_loop
+%%try_next_word:
     mov edx, [edx]   ; follow the tail! (linked list)
-    jmp .test_word
-.not_found:
+    jmp %%test_word
+%%not_found:
     push 0   ; return 0 to indicate not found
-    jmp .done
-.found_it:
+    jmp %%done
+%%found_it:
     push edx ; return  pointer to tail of dictionary word
-.done:
+%%done:
+%endmacro
+DEFWORD find
+    FIND_CODE
 ENDWORD find, "find", (IMMEDIATE)
 
 ; Gets input from a file, filling input_buffer and resetting
@@ -973,7 +976,7 @@ elf_header:
     dw          3 ; machine   - 3="Intel 80386"
     dd          1 ; version   - 1="Current"
     dd 0x08048000 ; entry     - Execution start address
-    dd  phdr - $$ ; phoff     - section start to program header
+    dd phdr - elf_header ; phoff - bytes to program header
     dd          0 ; shoff     - 0 for no section header
     dd          0 ; flags     - processor-specific flags
     dw   hdr_size ; ehsize    - this header bytes, see below
@@ -1022,9 +1025,17 @@ section .text
 
 DEFWORD make_elf
     EAT_SPACES_CODE
-    GET_TOKEN_CODE ; leaves token addr on stack
-    pop ebx ; token addr for open
-    push ebx ; save a copy for 'find' later
+    GET_TOKEN_CODE ; get address of next token's string
+    FIND_CODE      ; get tail of word matching token
+    ; TODO: handle failure of 'find'
+    pop esi ; addr of tail (and keep in esi the whole time)
+    mov eax, [esi + T_CODE_LEN]    ; get len of code
+    ; Overwrite the placeholder program size values in the
+    ; ELF header data section with this word's code size.
+    mov [prog_bytes1], eax
+    mov [prog_bytes2], eax
+DEBUG "prog bytes: ", eax
+
     ; From open(2) man page:
     ;   A call to creat() is equivalent to calling open()
     ; with flags equal to O_CREAT|O_WRONLY|O_TRUNC.
@@ -1038,30 +1049,34 @@ DEFWORD make_elf
     ; Hence this flag value for 'open':
     mov ecx, (0100o | 0001o | 1000o)
     ; ebx contains null-terminated word name (see above)
-    mov edx, 666o ; mode (permissions)
+    mov edx, 555o ; mode (permissions)
     mov eax, SYS_OPEN
     int 80h ; now eax will contain the new file desc.
 
     DEBUG "new fd: ", eax
-
     ; TODO: if open failed, print an error message and
     ;       skip to the end.
 
-    ; TODO: get the size of the word we'll be writing and
-    ;       overwrite the program section's size
 
-    ; Write ELF header
     ;
+    ; Write ELF header
     mov edx, elf_header_size ; bytes to write
     mov ecx, elf_header      ; source address
     mov ebx, eax ; the fd for writing (opened/created above)
     mov eax, SYS_WRITE
     int 80h
 
-    ; TODO: write the word data after the header
-    ;       (remember: we got the size above...)
+    ;
+    ; Write word (program)
+    mov edx, [esi + T_CODE_LEN] ; bytes to write
+    mov eax, [esi + T_CODE_OFFSET] ; for source addr
+    mov ecx, esi ; tail addr
+    sub ecx, eax ; source addr (code offset from tail)
+    mov eax, SYS_WRITE ; ebx still has fd
+    int 80h
 
-    ; ebx still contains the fd we opened, now close it
+    ;
+    ; Close file (ebx still has fd)
     mov eax, SYS_CLOSE
     int 80h
 ENDWORD make_elf, 'make_elf', (IMMEDIATE)

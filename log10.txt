@@ -213,7 +213,120 @@ ELF Header:
 
     ...
 
-readelf: exit: Error: Reading 32 bytes extends past end of file for program headers
+readelf: exit: Error: Reading 32 bytes extends past end of
+file for program headers
 
     Yeah, so it looks like my program header offset might be
     wrong. But otherwise, the decoding looks correct!
+
+    Next night: Okay, I don't see anything wrong with my
+    header data (program header offset), so I'm gonna try
+    just writing out a program (word) and see what
+    happens.
+
+    I'm overwriting the program size portion of the program
+    header in data and then writing the header, *then*
+    writing the actual program after that. Every time I call
+    'make_elf' my elf_header data will contain the last
+    word's size that was written.
+
+    Anyway, here goes:
+
+$ mr
+make_elf exit
+prog bytes: 00000008
+new fd: 00000003
+Goodbye.
+
+    My 'exit' word is 8 bytes, that sounds right.
+
+    What does file say?
+
+$ file exit
+exit: ELF 32-bit LSB executable, Intel 80386, version 1
+(SYSV), statically linked, no section header
+
+    Ooh! No more errors there!
+
+    And readelf?
+
+$ readelf exit
+ELF Header:
+  Magic:   7f 45 4c 46 01 01 01 00 00 00 00 00 00 00 00 00 
+  Class:                             ELF32
+  Data:                              2's complement, little endian
+  Version:                           1 (current)
+  OS/ABI:                            UNIX - System V
+  ABI Version:                       0
+  Type:                              EXEC (Executable file)
+  Machine:                           Intel 80386
+  Version:                           0x1
+  Entry point address:               0x8048000
+  Start of program headers:          52 (bytes into file)
+  Start of section headers:          0 (bytes into file)
+  Flags:                             0x0
+  Size of this header:               52 (bytes)
+  Size of program headers:           32 (bytes)
+  Number of program headers:         1
+  Size of section headers:           0 (bytes)
+  Number of section headers:         0
+  Section header string table index: 0
+
+...
+
+Program Headers:
+  Type           Offset   VirtAddr   PhysAddr   FileSiz MemSiz  Flg Align
+  LOAD           0x000000 0x08048100 0x00000000 0x00008 0x00008 R E 0
+
+...
+
+    Cool! That looks good. My program takes up 8 bytes in
+    memory TOTAL. It doesn't allocate ANY memory for a stack
+    or data or anything, which is correct.
+
+    Next morning (I fell asleep): Now for the moment of
+    truth, does the program properly exit?
+
+$ ./exit
+bash: ./exit: Permission denied
+
+    LOL. Yeah, it literally doesn't have execute permission:
+
+-rw-r--r-- 1 dave users 92 Dec 30 09:04 exit
+
+    Weird. That's not the permissions I thought I was
+    setting via the edx register for the sys 'write' call:
+
+        mov edx, 555o ; mode (permissions)
+
+    Well, I'll figure that out in a bit. Right now I just
+    wanna see if I can run this thing.
+
+$ chmod +x exit
+$ ./exit
+Segmentation fault
+
+    Oops, nope. Let's see what GDB says about this
+    program.
+
+    Looks like I have to break via explicit address since
+    there's no debugging symbols...
+
+$ gdb exit
+...
+(gdb) break *0x08048100
+Breakpoint 1 at 0x8048100
+(gdb) run
+...
+Segmentation fault.
+
+    Argh. Shouldn't it have halted at the first instruction?
+    Hmm...
+
+    I'm thinking maybe my program section doesn't have
+    execution permissions or something, in which case it
+    might die before it can even look at the first
+    instruction?
+
+    Anyway, now I know what I'm gonna start looking at next
+    time.
