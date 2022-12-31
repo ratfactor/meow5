@@ -330,3 +330,167 @@ Segmentation fault.
 
     Anyway, now I know what I'm gonna start looking at next
     time.
+
+    Next night: no, the flags (pretty sure they're R=read,
+    E=execute) look right for a text/executable segment. And
+    at any rate, as near as I can tell (and meow5 wouldn't
+    work the way it does if it weren't true), Linux ignores
+    the flags anyway!
+
+    Instead, I had mis-typed the entry point address in the
+    main header vs the program header. Now I've made them
+    the same:
+
+$ readelf -a exit
+...
+  Entry point address:               0x8048100
+...
+Program Headers:
+  Type           Offset   VirtAddr    ...
+  LOAD           0x000000 0x08048100  ...
+
+    Kinda weird that there's a leading 0 on one, but not the
+    other, right? But I don't see any harm per se. Also, the
+    meow5 executable shows the same thing (though it
+    executes starting in the second segment and I don't
+    claim to entirely understand the program segment
+    addressing yet, so I may well be missing something
+    important. I need to read that chapter of the ELF
+    document properly...)
+
+    Anyway, does it work now?
+
+$ ./exit
+Segmentation fault
+
+    Bah.
+
+    Okay, let's see if I can figure out some stuff with GDB.
+
+(gdb) file exit
+Reading symbols from exit...
+(No debugging symbols found in exit)
+(gdb) info file
+Symbols from "/home/dave/meow5/exit".
+
+    Hmmm. I thought 'info file' would at least show the
+    entry point, but no luck there.
+
+(gdb) break *0x08048100
+Breakpoint 1 at 0x8048100
+(gdb) run
+Starting program: /home/dave/meow5/exit
+During startup program terminated with signal SIGSEGV,
+Segmentation fault.
+
+    Another mystery. Well, my meow5 executable starts each
+    LOAD segment at even 1000 byte marks - which I guess has
+    something to do with page sizes? (Again, I need to read
+    that ELF document chapter, and I will, but I just wanna
+    see this working!)
+
+    So I updated my addresses to 0x08048000 at an even 1000
+    (in hex). I double-checked them with 'readelf -hl exit',
+    which I'll spare you from here.
+
+    But running it:
+
+$ ./exit
+Segmentation fault
+
+    Argh.
+
+    I'll take a look with GDB:
+
+(gdb) file exit
+Reading symbols from exit...
+(No debugging symbols found in exit)
+(gdb) r
+Starting program: /home/dave/meow5/exit
+
+Program received signal SIGSEGV, Segmentation fault.
+0x08048047 in ?? ()
+
+    Wait a second! That *is* progress. Now it's showing me
+    the address of the crash. I wasn't getting that before.
+    And it looks like it's crashing 47 bytes into memory
+    (which is way larger than my exit code). So it could be
+    that my program just isn't executing correctly...
+
+    So I'll set a breakpoint at the entry point (with GBD's
+    '*' address syntax) and see if I can figure out how to
+    view what's running.
+
+(gdb) break *0x08048000
+Breakpoint 1 at 0x8048000
+(gdb) r
+The program being debugged has been started already.
+Start it from the beginning? (y or n) y
+Starting program: /home/dave/meow5/exit
+
+Breakpoint 1, 0x08048000 in ?? ()
+
+    Cool! I've finally paused the darn thing.
+
+(gdb) disass *0x08048000
+No function contains specified address.
+
+    I guess without symbols, 'disassemble' won't cooperate?
+    Can I at least step?
+
+(gdb) s
+Cannot find bounds of current function
+
+    Oh, right. I know this one. There's a separate 'stepi'
+    to step through the program at the instruction level
+    since there are no 'lines' to step through!
+
+(gdb) stepi
+0x08048047 in ?? ()
+
+    Huh? Why am I now at that '...8047' address?
+
+    Turns out there's an 'i' format that will display
+    whatever memory you want as an instruction. So, after
+    the fact, here's that first instruction we just ran:
+
+(gdb) x/i 0x08048000
+   0x8048000:	jg     0x8048047
+
+    Ha ha, well, that certainly explains what's happening.
+    But how did that get there? Here's the bytes of that
+    machine code:
+
+(gdb) x/x 0x8048000
+0x8048000:	0x464c457f
+
+    Since it's so tiny, I'm just gonna hex dump exit
+    entirely to see where that is:
+
+00000000: 7f45 4c46 0101 0100 0000 0000 0000 0000  .ELF............
+00000010: 0200 0300 0100 0000 0080 0408 3400 0000  ............4...
+00000020: 0000 0000 0000 0000 3400 2000 0100 0000  ........4. .....
+00000030: 0000 0000 0100 0000 0000 0000 0080 0408  ................
+00000040: 0000 0000 0800 0000 0800 0000 0500 0000  ................
+00000050: 0000 0000 5bb8 0100 0000 cd80            ....[.......
+
+    Ha ha, I see it right away (though little-endian always
+    makes it harder because the bytes are reversed).
+
+    The memory we're trying to execute is the 'ELF' magic
+    string from the header!
+
+    Okay, apparently I really need to read that chapter
+    about program segments and how they're loaded into
+    memory now.
+
+    But I gotta say, I really don't regret getting this
+    wrong to begin with. Now I have a concrete example of
+    what's happening and the information in that chapter is
+    going to make *so* much more sense to me. Sometimes
+    getting it right the first time "by the book" doesn't
+    teach me nearly as much as getting it wrong on my own
+    and *then* learning how to do it properly. It just
+    sticks better.
+
+

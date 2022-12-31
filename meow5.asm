@@ -999,7 +999,7 @@ elf_header:
 phdr: ; Program Header
     dd         1 ; p_type   - 1=PT_LOAD, map file to memory
     dd         0 ; p_offset - bof to first byte of segment
-    dd 0x8048100 ; p_vaddr  - virt addr of 1st byte of segment
+    dd 0x8048000 ; p_vaddr  - virt addr of 1st byte of segment
     dd         0 ; p_paddr  - phys addr (can probably ignore)
 
     ; TODO: Before writing out this elf header, these two
