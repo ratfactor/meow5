@@ -1,0 +1,23 @@
+    In this log, I'd like to figure out how to handle memory
+    access in my output ELF executable.
+
+    The first challenge will be to figure out how to keep
+    track of things like strings that have been stored in
+    the running interpreter's memory...which need to be
+    referenced by the written program.
+
+    Quite frankly, my first shot at it might have to be a
+    total hack. I don't really have any proper mechanism for
+    keeping track of what's been used, so I'll probably
+    just write ALL of the currently used memory, even if
+    it's not actually referenced.
+
+    Actually, just thinking about this is giving me all
+    sorts of wild ideas about how you could "save" the
+    current state of the whole interpreter as an executable
+    that picks right up where you left off last time...
+
+    That would certainly be unique.
+
+    Anyway, first I gotta figure out how to write memory and
+    make it accessible.

@@ -493,4 +493,99 @@ Cannot find bounds of current function
     and *then* learning how to do it properly. It just
     sticks better.
 
+    Some number of nights later: First of all, the file
+    creation permissions here _were_ working. I've also
+    updated them to 755:
 
+        mov edx, 755o ; mode (permissions)
+
+    Which shows up correctly:
+
+$ ls -l exit
+-rwxr-xr-x 1 dave users 92 Jan  3 22:01 exit
+
+    And as for my executable trying to run the ELF header
+    itself...ha ha, well, I did read Part 2:  "Program
+    Loading and Dynamic Linking" of the System V ELF spec
+    and the answer was so simple, it was downright silly.
+
+    When you specify that the ELF executable wants to load
+    the file segment into (one of) the program's virtual
+    memory segments (which is what my single "LOAD" type
+    program header is requesting), it will load the ELF
+    header itself, followed by whatever data (or machine
+    code, in this case) follows the header.
+
+    So you always need to account for the ELF header when
+    determining the execution entry point address.
+
+    In other words, where I was pointing to the very first
+    byte of my requested virtual address:
+
+      dd 0x08048000 ; entry     - Execution start address
+
+    I needed to offset it by the elf header size:
+
+      dd elf_va + elf_size ; entry - execution start address
+
+    Oh, right, and I also made a NASM macro to contain that
+    address so I wouldn't have the bare value in multiple
+    places:
+
+      %assign elf_va 0x08048000 ; elf virt mem start address
+
+    Okay, crossing my fingers and toes...
+
+$ mr
+make_elf exit
+prog bytes: 00000008
+new fd: 00000003
+Goodbye.
+Exit status: 0
+$ ./exit
+$ 
+
+    Gasp! It worked! My executable exited cleanly! That can
+    only happen if the exit syscall was called correctly.
+
+    But a *real* test would be to call the exit syscall with
+    a unique value so we can *see* it doing something.
+
+    Do I dare hope? I'm going to try making a new word with
+    a constant value and "calling" the 'exit' word and see
+    if I can write that out as a new ELF executable:
+
+$ mr
+: foo 42 exit ;
+make_elf foo
+prog bytes: 0000000d
+new fd: 00000003
+Goodbye.
+Exit status: 0
+
+    Indeed, that wrote a 97 byte ELF file containing 0xD
+    (13) bytes of machine code:
+
+$ ls -l foo
+-rwxr-xr-x 1 dave users 97 Jan  3 22:25 foo
+
+    But does it work?!
+
+    Drum roll...
+
+$ ./foo
+$ echo $?
+42
+$
+
+    Ha ha! No way! 
+
+    It totally works.
+
+    Initial ELF creation is a success!
+
+    I think I'll figure out how to handle memory in my ELF
+    output next. It would be amazing to be able to write a
+    stand-alone executable that prints "Meow. Meow. Meow..."
+
+    See you in the next log!

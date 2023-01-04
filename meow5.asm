@@ -964,6 +964,7 @@ ENDWORD getvar, 'get', (IMMEDIATE | COMPILE)
 ; *******************************************
 
 section .data
+%assign elf_va 0x08048000 ; elf virt mem start address
 elf_header:
     ; ELF Identification (16 bytes)
     db 0x7F,'ELF' ; Magic String
@@ -975,7 +976,7 @@ elf_header:
     dw          2 ; type      - 2="Executable file"
     dw          3 ; machine   - 3="Intel 80386"
     dd          1 ; version   - 1="Current"
-    dd 0x08048000 ; entry     - Execution start address
+    dd elf_va + elf_size ; entry - execution start address
     dd phdr - elf_header ; phoff - bytes to program header
     dd          0 ; shoff     - 0 for no section header
     dd          0 ; flags     - processor-specific flags
@@ -999,7 +1000,7 @@ elf_header:
 phdr: ; Program Header
     dd         1 ; p_type   - 1=PT_LOAD, map file to memory
     dd         0 ; p_offset - bof to first byte of segment
-    dd 0x8048000 ; p_vaddr  - virt addr of 1st byte of segment
+    dd    elf_va ; p_vaddr  - virt addr of 1st byte of segment
     dd         0 ; p_paddr  - phys addr (can probably ignore)
 
     ; TODO: Before writing out this elf header, these two
@@ -1018,7 +1019,7 @@ prog_bytes2:
     ; initialized and uninitialized memory for storage.
     ;
     ; Don't forget to update the 'phnum' from 1 to 2.
-    elf_header_size equ $ - elf_header
+    elf_size equ $ - elf_header
 
 
 section .text
@@ -1049,7 +1050,7 @@ DEBUG "prog bytes: ", eax
     ; Hence this flag value for 'open':
     mov ecx, (0100o | 0001o | 1000o)
     ; ebx contains null-terminated word name (see above)
-    mov edx, 555o ; mode (permissions)
+    mov edx, 755o ; mode (permissions)
     mov eax, SYS_OPEN
     int 80h ; now eax will contain the new file desc.
 
@@ -1060,7 +1061,7 @@ DEBUG "prog bytes: ", eax
 
     ;
     ; Write ELF header
-    mov edx, elf_header_size ; bytes to write
+    mov edx, elf_size ; bytes to write
     mov ecx, elf_header      ; source address
     mov ebx, eax ; the fd for writing (opened/created above)
     mov eax, SYS_WRITE
