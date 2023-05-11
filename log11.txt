@@ -20,4 +20,771 @@
     That would certainly be unique.
 
     Anyway, first I gotta figure out how to write memory and
-    make it accessible.
+    make it accessible...
+
+
+                    *********************
+                    * Five months pass. *
+                    *********************
+
+    Soooooooo.... Here's what happened.
+
+    In order to have my ELF executables allocate memory on
+    startup, I added a second "program" segment of type
+    LOAD.
+
+    Any strings would be stored in the "lower" part of that
+    segment. (And maybe additional memory would be allocated
+    to use as scratch space in the program?)
+
+    I was able to stumble my way into the single working
+    segment in the last log.
+
+    But adding a second segment taxed my feeble
+    understanding to the breaking point.
+
+    Furthermore, I had some extremely rare personal project
+    deadlines come up in January and February. So my
+    nighttime reserves were even more pathetic than usual.
+
+    Anyway, the resultant executable always segfaulted:
+
+$ mr
+: foo "Meow." say ;
+make_elf foo
+prog bytes: 000000ce
+data offset: 00000142
+new fd: 00000003
+Goodbye.
+Exit status: 0
+
+$ ./foo
+Segmentation fault
+
+    And it was clear that just trying to poke it from
+    different angles wasn't going to "accidentally" make it
+    work. I needed some real insight.
+
+    As always, GDB was resistant to considering anything but
+    a C exectuable as worthy of examination.
+
+
+    I tried to find tools to assist me in understanding what
+    I was doing wrong, but nothing made it easy enough for
+    me to "get it". I was exhausted and the information just
+    wasn't penetrating my thick skull.
+
+    Note: One of the tools I tried out was Radare 2:
+
+      https://en.wikipedia.org/wiki/Radare2
+
+      "Radare2 (also known as r2) is a complete framework
+      for reverse-engineering and analyzing binaries;
+      composed of a set of small utilities that can be used
+      together or independently from the command line. Built
+      around a disassembler for computer software which
+      generates assembly language source code from
+      machine-executable code, it supports a variety of
+      executable formats for different processor
+      architectures and operating systems."
+
+    That was a really fun excursion and r2 is an amazing
+    tool (well, tools). But though it was doing a better job
+    than GDB with my crazy ELF executable output, it still
+    wasn't giving me any magical insight into the problem.
+
+    Reluctantly, I shelved it.
+
+    I finished some projects and started to feel better
+    about my place in the universe.
+
+    And then inspiration struck. Here is what I would do:
+
+        Write my own stupid tool to read the ELF file.
+        Write it in Zig.
+    
+    This would solve three problems at once:
+
+        1. By writing the tool, I would be able to fully
+           understand the ELF header format. (Programming
+           and writing help me think.)
+        2. By writing it in Zig, I would finally have a
+           concrete project to kick-start me back into the
+           Zig world from which I'd been absent for (gasp)
+           nearly two years!
+        3. Hopefully the tool would actually help me figure
+           out how to correctly write the ELF header!
+
+    Well, it's been a little over two weeks of tiny,
+    incremental nighttime progress, and I'm pleased to say
+    that the tool is absolutely everything I had hoped it
+    would be...and it was not even remotely hard to make:
+
+        https://github.com/ratfactor/mez
+
+            MEZ = Meow5 + ELF + Zig
+
+    Here's the output (it automatically reads "foo" and foo
+    is the program example you saw above):
+
+$ ./mez
+-----------------------------------------
+Main ELF Header
+  0-3 - four bytes of magic (0x7f,'ELF'): Matched!
+    4 - 32-bit, as expected.
+    5 - little-endian, as expected.
+24-27 - Program entry addr: 0x08048000
+28-31 - Program header offset (in this file): 0x34
+32-35 - Section header offset (in this file): 0x0
+40-41 - Size of this header: 52 bytes
+42-43 - Size of program header entries: 32 bytes
+44-45 - Number of program entries: 2
+-----------------------------------------
+Program Header @ 0x34
+  Segment type: 1 ('load', as expected)
+  File offset: 0x0
+  File size: 4096 bytes
+  Target memory start: 0x8048000
+  Target memory size: 4096 bytes
+  Memory mapping:
+    +--------------------+     +--------------------+
+    | File               | ==> | Memory             |
+    |====================|     |====================|
+    | 0x0                |     | 0x08048000         |
+    |   Load: 4096       |     |   Alloc: 4096      |
+    | 0x1000             |     | 0x08049000         |
+    +--------------------+     +--------------------+
+-----------------------------------------
+Program Header @ 0x54
+  Segment type: 1 ('load', as expected)
+  File offset: 0x142
+  File size: 5 bytes
+  Target memory start: 0x8049000
+  Target memory size: 10 bytes
+  Memory mapping:
+    +--------------------+     +--------------------+
+    | File               | ==> | Memory             |
+    |====================|     |====================|
+    | 0x142              |     | 0x08049000         |
+    |   Load: 5          |     |   Alloc: 10        |
+    | 0x147              |     | 0x0804900a         |
+    +--------------------+     +--------------------+
+-----------------------------------------
+
+    Look at how pretty that is! Look at the ASCII art boxes
+    showing how the file is being mapped into memory!
+
+    Compare that to readelf's program header output:
+
+$ readelf -l foo
+
+Elf file type is EXEC (Executable file)
+Entry point 0x8048000
+There are 2 program headers, starting at offset 52
+
+Program Headers:
+  Type           Offset   VirtAddr   PhysAddr   FileSiz MemSiz  Flg Align
+  LOAD           0x000000 0x08048000 0x00000000 0x01000 0x01000 RWE 0x1000
+  LOAD           0x000142 0x08049000 0x08049000 0x00005 0x0000a RWE 0x1000
+
+    It's the same info, but I can visualize mine.
+
+    Anyway, that's just me being excited about this little
+    tool.
+
+    Now let's see if I can fix this executable!
+
+    The first problem is that program entry address.
+
+    If I'm loading the whole file into memory at this
+    virtual address:
+
+        0x08048000
+
+    And I'm executing at that same address...well, then it's
+    trying to run whatever you get when you try to execute
+    the ELF header itself as an executable.
+
+    Apparently that was one of the last things I'd been
+    mucking around with when I quit because this totally
+    worked in my previous single-segment executable.
+
+    Rather than load everything from the start of the file
+    into that address and then execute starting at an
+    offset, it would make sense to *load* from the offset so
+    the only thing in memory is my actual executable
+    program, right?
+
+    In other words, why load the whole file into memory like
+    this:
+
+        0x08048000 ELF Header
+        0x08048074 Program code
+
+    (And setting the program entry address to the 0x74 byte
+    offset.)
+
+    When I could load just the program code and keep the
+    program entry address the way it is:
+
+        0x08048000 Program code
+
+    I'm going to do that and also clean up the mess I left
+    for myself in these two program header definitions. It
+    looks much better (trust me). You can find them in the
+    assembly source with labels 'phdr1' and 'phdr2'.
+
+$ mr
+: foo "Meow." say ;
+make_elf foo
+prog bytes: 000000ce
+data offset (header+prog): 00000142
+new fd: 00000003
+Goodbye.
+Exit status: 0
+
+    It still segfaults:
+
+$ ./foo
+Segmentation fault
+
+    But my MEZ output looks right:
+
+    ...
+    24-27 - Program entry addr: 0x08048000
+    ...
+    Program Header @ 0x34
+        +--------------------+     +--------------------+
+        | File               | ==> | Memory             |
+        |====================|     |====================|
+        | 0x74               |     | 0x08048000         |
+        |   Load: 206        |     |   Alloc: 206       |
+        | 0x142              |     | 0x080480ce         |
+        +--------------------+     +--------------------+
+    ...
+    Program Header @ 0x54
+        +--------------------+     +--------------------+
+        | File               | ==> | Memory             |
+        |====================|     |====================|
+        | 0x142              |     | 0x08049000         |
+        |   Load: 11         |     |   Alloc: 11        |
+        | 0x14d              |     | 0x0804900b         |
+        +--------------------+     +--------------------+
+
+    The problem is that I'm running blind in terms of what
+    should be at that start address.
+
+    I just found out about the disassembler that comes with
+    NASM and I see that I can ask it to give me the
+    disassembly of a file starting at an offset (by
+    "skipping" bytes starting at offset 0):
+
+$ ndisasm -k 0,0x74 foo
+00000000  skipping 0x74 bytes
+00000074  68E0C1            push word 0xc1e0
+00000077  0408              add al,0x8
+00000079  5E                pop si
+0000007A  B90000            mov cx,0x0
+...
+
+    But it's been way too long since I was intimate enough
+    with my initial "code words" to recognize that
+    disassembly.
+
+    So... I think what I would like is to add a new word to
+    meow5 that dumps the raw machine code of a word so I can
+    simply *find* it in the executable.
+
+    I already have 'inspect', which prints info from a
+    word's tail. It seems like it would be pretty straight
+    forward to use that as the starting point for a
+    'dump-word' word. I also have 'ps' (print stack) that I
+    forgot about, which is a perfect example of printing a
+    space-delimited list of numbers.
+
+    After a bit of trial-and-error (I'm rusty, but it's
+    coming back to me!), I've got _something_. Let's do a
+    word with a nice short definition:
+    
+        DEFWORD inc
+            pop ecx
+            inc ecx
+            push ecx
+        ENDWORD inc, 'inc', (IMMEDIATE | COMPILE)
+
+"inc" find dump-word
+a1 51 41 59
+
+    I can write that as actual binary data by using xxd's
+    reverse operation:
+
+$ echo a1 51 41 59 | xxd -r -p > inc.bin
+
+    But disassembling that isn't right:
+
+$ ndisasm get.bin
+00000000  A15141            mov ax,[0x4151]
+00000003  59                pop cx
+
+    I found a nice little x86 instruction chart:
+
+    http://sparksandflames.com/files/x86InstructionChart.html
+
+    Let's see...
+
+        51   push ecx
+        41   inc ecx
+        59   pop ecx
+
+    Those are right, but in reverse order. This is one of
+    those real dumb bugs, isn't it?
+
+    Yup, real dumb. It's getting late.
+
+    Second try:
+
+"inc" find dump-word
+59 41 51
+
+    That looks good! Now a different one as a sanity check
+    and let's see if it disassembles correctly:
+
+$ echo 59 49 51 | xxd -r -p | ndisasm  -
+00000000  59                pop cx
+00000001  49                dec cx
+00000002  51                push cx
+
+    Ha! Yup!
+
+    You know what? I could totally be piping repeated
+    commands like this into meow5. I just need to get rid of
+    that "Goodbye." message at the end (I think that was
+    more of a diagnostic feel-good message when I added it
+    anyway.)
+
+    Done.
+
+$ echo '"Hello command line!" say' | ./meow5
+Hello command line!
+
+    Oh man, this is gonna save me so much time.
+
+    And I'll make a super simple word and test it:
+
+$ echo ': foo 42 exit ; foo' | ./meow5
+$ echo $?
+42
+
+    Let's disassemble that foo:
+
+$ echo ': foo 42 exit ; "foo" find dump-word' | ./meow5 > foo.hex
+$ cat foo.hex
+68 2a 0 0 0 5b b8 1 0 0 0 cd 80
+$ xxd -r -p foo.hex | ndisasm -
+00000000  682A00            push word 0x2a
+00000003  05BB81            add ax,0x81bb
+00000006  000C              add [si],cl
+00000008  D8                db 0xd8
+
+    Hmmm... it starts off correct and then goes rapidly
+    downhill...oh, I think I see. Those single-digit 0s are
+    getting squished into nibbles rather than whole bytes?
+
+    Well, adding number formatting is way outside the scope
+    of this particular test, so I'm gonna just manually add
+    leading zeros on the file and see what happens.
+
+$ vim foo.hex
+$ xxd -r -p foo.hex | ndisasm -
+00000000  682A00            push word 0x2a
+00000003  0000              add [bx+si],al
+00000005  5B                pop bx
+00000006  B81000            mov ax,0x10
+00000009  000C              add [si],cl
+0000000B  D8                db 0xd8
+
+    Maybe? So let's see: push 0x2a (42) is correct.
+    Adding whatever is in al to the address at bx+si seems
+    weird.
+
+    Here's the source of the 'exit' word:
+
+        pop ebx ; param1: exit code
+        mov eax, SYS_EXIT
+        int 0x80
+
+    So that should be 1 for SYS_EXIT ...
+
+    Wait, wait, wait WAIT!
+
+    I just read the man page for ndisasm - it's in 16-bit
+    assembly mode by default! The -u switch puts it in
+    32-bit mode!
+
+$ xxd -r -p foo.hex | ndisasm -u -
+00000000  682A000000        push dword 0x2a
+00000005  5B                pop ebx
+00000006  B81000000C        mov eax,0xc000010
+0000000B  D8                db 0xd8
+
+    Well, that's certainly closer!
+
+     Hmm... Okay, I want to see what that assembly should
+     be:
+
+$ cat exit42.asm
+section .text
+
+global _start
+_start:
+    push 42
+    pop ebx
+    mov eax, 1
+    int 0x80
+
+$ nasm -w+all -g -f elf32 -o exit42.o exit42.asm
+$ ld -m elf_i386 exit42.o -o exit42
+$ ./exit42
+$ echo $?
+42
+
+    And evidently objdump is what I want to get the
+    disassembly of a portion of an ELF executable:
+
+$ objdump -d exit42
+exit42:     file format elf32-i386
+Disassembly of section .text:
+
+08049000 <_start>:
+ 8049000:	6a 2a                	push   $0x2a
+ 8049002:	5b                   	pop    %ebx
+ 8049003:	b8 01 00 00 00       	mov    $0x1,%eax
+ 8049008:	cd 80                	int    $0x80
+
+    And let's see that foo source again:
+    
+00000000  682A000000        push dword 0x2a
+00000005  5B                pop ebx
+00000006  B81000000C        mov eax,0xc000010
+0000000B  D8                db 0xd8
+
+    Okay, the beginning is different only by a mov versus
+    mov dword. I can't seem to get nasm to generate the
+    dword verison, but otherwise they're the same
+    instruction mnemonic and the code still makes sense.
+
+    Then further down, clearly we're off by 01 versus 10
+    and then a different number of 0s.
+
+    Oh, this is just a leading 0 problem. I got all of the
+    single 0s, but didn't add a leading 0 to the single 1.
+    Okay, no problem:
+
+$ vim foo.hex
+$ xxd -r -p foo.hex | ndisasm -u -
+00000000  682A000000        push dword 0x2a
+00000005  5B                pop ebx
+00000006  B801000000        mov eax,0x1
+0000000B  CD80              int 0x80
+
+    That's the stuff! This is 100% the correct disassembly
+    of the "foo" word as defined.
+
+    So now I know what I should be seeing in the compiled
+    ELF created by Meow5.
+
+    And sure enough, that's exactly what's in there:
+
+$ xxd -s 0x74 -l 0xc  foo
+00000074: 682a 0000 005b b801 0000 00cd            h*...[......
+
+    Why does this crash?
+
+    Next night:
+
+    I did some reading. Check this out:
+
+$ ./foo
+Segmentation fault
+$ sudo dmesg | tail
+...
+[   35.663071] process '/dave/meow5/foo' started with executable stack
+
+    This whole time, Linux has been logging an error for my
+    executable and I didn't even realize it.
+
+    I've got an "executable stack". (Uh, I don't have a
+    stack at all, but I'm guessing this is what the Linux
+    loader _thinks_ that second segment is for.
+
+    Okay, so I'll just change the permission flags on the
+    second segment to remove exec:
+
+        ; flags: 1=exec, 2=write, 4=read (7=RWX)
+        dd         6 
+
+$ ./foo
+Segmentation fault
+$ sudo dmesg | tail
+...
+
+    Okay, so maybe that wasn't it. The "executable stack"
+    message went away, but the segfault did not.
+
+    Okay, now I'm commenting out everything to do with the
+    second segment (the whole second program header, the
+    test string data, and anything that referenced them.
+
+    Here it is now:
+
+$ echo ': foo 42 exit ; make_elf foo' | ./meow5
+prog bytes: 0000000d
+data offset (header+prog): 00000061
+new fd: 00000003
+
+$ readelf -h -l foo
+ELF Header:
+...
+  Entry point address:               0x8048000
+  Start of program headers:          52 (bytes into file)
+...
+Program Headers:
+  Type           Offset   VirtAddr   PhysAddr   FileSiz MemSiz  Flg Align
+  LOAD           0x000054 0x08048000 0x00000000 0x0000d 0x0000d RWE 0
+
+$ ./foo
+
+$ mez
+-----------------------------------------
+Main ELF Header
+  0-3 - four bytes of magic (0x7f,'ELF'): Matched!
+    4 - 32-bit, as expected.
+    5 - little-endian, as expected.
+24-27 - Program entry addr: 0x08048000
+28-31 - Program header offset (in this file): 0x34
+32-35 - Section header offset (in this file): 0x0
+40-41 - Size of this header: 52 bytes
+42-43 - Size of program header entries: 32 bytes
+44-45 - Number of program entries: 1
+-----------------------------------------
+Program Header @ 0x34
+  Segment type: 1 ('load', as expected)
+  File offset: 0x54
+  File size: 13 bytes
+  Target memory start: 0x8048000
+  Target memory size: 13 bytes
+  Memory mapping:
+    +--------------------+     +--------------------+
+    | File               | ==> | Memory             |
+    |====================|     |====================|
+    | 0x54               |     | 0x08048000         |
+    |   Load: 13         |     |   Alloc: 13        |
+    | 0x61               |     | 0x0804800d         |
+    +--------------------+     +--------------------+
+
+$ ./foo
+Segmentation fault
+
+    Well, blast it! Looks like my problem has something to
+    do with some *other* change I've made since I last had
+    ELF output working.
+
+    And just about the only thing I changed was the segment
+    file offset and entrypoint.
+
+    So I'm going to change those back to what I had before.
+    Here's the relevant parts from mez:
+
+...
+24-27 - Program entry addr: 0x08048054
+...
+  Memory mapping:
+    +--------------------+     +--------------------+
+    | File               | ==> | Memory             |
+    |====================|     |====================|
+    | 0x0                |     | 0x08048054         |
+    |   Load: 13         |     |   Alloc: 13        |
+    | 0xd                |     | 0x08048061         |
+    +--------------------+     +--------------------+
+
+    So how about now?
+
+$ ./foo
+Segmentation fault
+
+    Ugh.
+
+    Well, on the plus side, I've certainly ruled a lot of
+    things out...
+
+    Wait, no, I didn't look carefully enough at it. The
+    virtual memory address is wrong. I was being too hasty
+    in changing it back. The virtual memory address should
+    still be 0x08048000, but the program entry address is
+    what will change to make up for the lack of file offset.
+
+    Okay, I'll fix that:
+
+...
+24-27 - Program entry addr: 0x08048054
+...
+  Memory mapping:
+    +--------------------+     +--------------------+
+    | File               | ==> | Memory             |
+    |====================|     |====================|
+    | 0x0                |     | 0x08048000         |
+    |   Load: 13         |     |   Alloc: 13        |
+    | 0xd                |     | 0x0804800d         |
+    +--------------------+     +--------------------+
+
+    And now?
+
+$ ./foo
+$ echo $?
+42
+
+    Okay! So for some reason, loading from a tiny file
+    offset wasn't working. I could figure out why, but
+    frankly, that's not even remotely related to my quest
+    with this application.
+
+    Let's see if all is well when I add that second segment
+    back now...
+
+$ mez
+-----------------------------------------
+Main ELF Header
+  0-3 - four bytes of magic (0x7f,'ELF'): Matched!
+    4 - 32-bit, as expected.
+    5 - little-endian, as expected.
+24-27 - Program entry addr: 0x08048074
+28-31 - Program header offset (in this file): 0x34
+32-35 - Section header offset (in this file): 0x0
+40-41 - Size of this header: 52 bytes
+42-43 - Size of program header entries: 32 bytes
+44-45 - Number of program entries: 2
+-----------------------------------------
+Program Header @ 0x34
+  Segment type: 1 ('load', as expected)
+  File offset: 0x0
+  File size: 13 bytes
+  Target memory start: 0x8048000
+  Target memory size: 13 bytes
+  Memory mapping:
+    +--------------------+     +--------------------+
+    | File               | ==> | Memory             |
+    |====================|     |====================|
+    | 0x0                |     | 0x08048000         |
+    |   Load: 13         |     |   Alloc: 13        |
+    | 0xd                |     | 0x0804800d         |
+    +--------------------+     +--------------------+
+-----------------------------------------
+Program Header @ 0x54
+  Segment type: 1 ('load', as expected)
+  File offset: 0x0
+  File size: 11 bytes
+  Target memory start: 0x8049000
+  Target memory size: 11 bytes
+  Memory mapping:
+    +--------------------+     +--------------------+
+    | File               | ==> | Memory             |
+    |====================|     |====================|
+    | 0x0                |     | 0x08049000         |
+    |   Load: 11         |     |   Alloc: 11        |
+    | 0xb                |     | 0x0804900b         |
+    +--------------------+     +--------------------+
+
+    And will it run?
+
+$ ./foo ; echo $?
+42
+
+    It does run!
+
+    Well, that is certainly interesting!
+
+    I wonder if you can't specify small LOAD segment file
+    offsets for alignment reasons or something?
+
+    I wish I had been able to figure out how to get GDB or
+    Radare 2 to show me a disassembly (or hex dump or
+    anything) of the memory that had *actually* been loaded
+    from my ELF file.
+
+    I'm sure r2 could have.
+
+    But this at least allows me to move forward.
+
+    So, I've loaded a hard-coded test string into my second
+    segment.
+
+    Let's see if it's there at the segment address I
+    specified:
+
+$ gdb -q foo
+Reading symbols from foo...
+(No debugging symbols found in foo)
+(gdb) info file
+Symbols from "/home/dave/meow5/foo".
+(gdb) break *0x08048074
+Breakpoint 1 at 0x8048074
+(gdb) r
+Starting program: /home/dave/meow5/foo 
+
+Breakpoint 1, 0x08048074 in ?? ()
+
+    I can debug again!
+
+(gdb) info proc
+process 2371
+cmdline = '/home/dave/meow5/foo'
+cwd = '/home/dave/meow5'
+exe = '/home/dave/meow5/foo'
+(gdb)
+[1]+  Stopped                 gdb -q foo
+$ ls /proc/2371/maps
+/proc/2371/maps
+$ cat /proc/2371/maps
+08048000-08049000 rwxp 00000000 08:04 8537091                            /home/dave/meow5/foo
+08049000-0804a000 rwxp 00000000 08:04 8537091                            /home/dave/meow5/foo
+
+    So I should be able to view the memory in that second
+    segment, right?
+
+(gdb) x/s 0x08049000
+0x8049000:	"\177ELF\001\001\001"
+
+    Huh? That's the start of the file.
+
+(gdb) x/s 0x08048000
+0x8048000:	"\177ELF\001\001\001"
+
+    Yeah, the segments are identical.
+
+    Oh, yeah, the file offset is 0 on both of these. Oops.
+    That's just a line I missed when I was uncommenting from
+    before.
+
+    How about now?
+
+$ ./foo
+Segmentation fault
+
+    Oh for...
+
+    Okay, you know what?
+
+    This whole multi-segment thing seemed like a great idea
+    four months ago, but it's extremely tangential to the
+    proof-of-concept that is Meow5.
+
+    I'm going back to one segment. I just want to see this
+    thing output an executable that can print a string!
+
+    I'll commit all the garbage I've got now just in case I
+    change my mind, but then I'm gonna basically revert to
+    what I had four months ago.
+
+    Hey, no regrets, though. It's all learning.
+
+

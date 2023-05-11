@@ -825,6 +825,36 @@ DEFWORD printstack
 ENDWORD printstack, 'ps', (IMMEDIATE | COMPILE)
 
 ; Takes word tail addr, prints meta-info (from tail)
+%macro DUMP_WORD_CODE 0
+    pop esi ; get tail addr
+    mov ecx, [esi + T_CODE_LEN]    ; len of code
+    mov eax, [esi + T_CODE_OFFSET] ; offset of code start
+    sub esi, eax ; esi is now start addr of code
+    add ecx, esi ; ecx is now end addr of code
+    mov dword ebx, [var_radix] ; save current radix
+    mov dword [var_radix], 16  ; set to hex
+    push ebx
+%%byte_loop:
+    cmp ecx, esi ; end addr reached?
+    je %%done     ; yup
+    mov al, [esi] ; no, print this value
+    push ecx ; preserve end addr
+    push eax ; print this value
+    PRINTNUM_CODE
+    PRINTSTR " "
+    pop ecx ; restore end addr
+    inc esi ; move to next addr
+    jmp %%byte_loop
+%%done:
+    PRINTSTR `\n`
+    pop ebx
+    mov dword [var_radix], ebx ; restore previous radix
+%endmacro
+DEFWORD dump_word
+    DUMP_WORD_CODE
+ENDWORD dump_word, 'dump-word', (IMMEDIATE)
+
+; Takes word tail addr, prints meta-info (from tail)
 %macro INSPECT_CODE 0
     pop esi ; get tail addr
     lea eax, [esi + T_NAME]
@@ -966,6 +996,7 @@ ENDWORD getvar, 'get', (IMMEDIATE | COMPILE)
 section .data
 %assign elf_va 0x08048000 ; elf virt mem start address
 elf_header:
+    ; **********************************************
     ; ELF Identification (16 bytes)
     db 0x7F,'ELF' ; Magic String
     db          1 ; "File class" 32 bit
@@ -976,8 +1007,11 @@ elf_header:
     dw          2 ; type      - 2="Executable file"
     dw          3 ; machine   - 3="Intel 80386"
     dd          1 ; version   - 1="Current"
+
+;    dd     elf_va ; entry - execution start address
     dd elf_va + elf_size ; entry - execution start address
-    dd phdr - elf_header ; phoff - bytes to program header
+
+    dd phdr1 - elf_header ; phoff - bytes to program header
     dd          0 ; shoff     - 0 for no section header
     dd          0 ; flags     - processor-specific flags
     dw   hdr_size ; ehsize    - this header bytes, see below
@@ -986,7 +1020,7 @@ elf_header:
     ; "section header" because that's more for compilers and
     ; linkers.
     dw  phdr_size ; phentsize - program header size
-    dw          1 ; phnum     - program header count
+    dw          2 ; phnum     - program header count
     dw          0 ; shentsize - section header size (none)
     dw          0 ; shnum     - section header count
     dw          0 ; shstrndx  - section header offset
@@ -997,30 +1031,51 @@ elf_header:
     ; program. So the "file size" and "mem size" should be
     ; equal.
 
-phdr: ; Program Header
-    dd         1 ; p_type   - 1=PT_LOAD, map file to memory
-    dd         0 ; p_offset - bof to first byte of segment
-    dd    elf_va ; p_vaddr  - virt addr of 1st byte of segment
-    dd         0 ; p_paddr  - phys addr (can probably ignore)
 
-    ; TODO: Before writing out this elf header, these two
-    ; bytes/sizes need to be written.
+    ; Program headers.
+    ; All values are 4 bytes long (dd = "define double")
 
+       ; **********************************************
+phdr1: ; Program Header 1 - the program
+       ; **********************************************
+    dd         1 ; type of program header (1=PT_LOAD)
+;    dd  elf_size ; offset in file of data to load
+    dd  0 ; offset in file of data to load
+    dd    elf_va ; target memory start address
+    dd         0 ; (NOT USED "phys addr"
 prog_bytes1:
-    dd         0 ; p_filesz - bytes file image of segment
+    dd         0 ; bytes to load from file (placeholder)
 prog_bytes2:
-    dd         0 ; p_memsz  - bytes memory image of segment
-    dd         5 ; p_flags  -
-    dd         0 ; p_align  - no alignment required
-    phdr_size equ $ - phdr ; calculate program header size
+    dd         0 ; bytes of memory to allocate (placeholder)
+    dd         7 ; flags: 1=exec, 2=write, 4=read (7=RWX)
+    dd    0 ; Memory alignment
+       ; **********************************************
 
-    ; TODO: I'm pretty sure I need another program header
-    ; for the data segment, which I think fits both the
-    ; initialized and uninitialized memory for storage.
-    ;
-    ; Don't forget to update the 'phnum' from 1 to 2.
+    ; Calculate program header size. Only need to do this
+    ; once. All program headers are the same size.
+    phdr_size equ $ - phdr1 ; calculate program header size
+
+       ; **********************************************
+phdr2: ; Program Header 2 - the data
+       ; **********************************************
+    dd         1 ; type=load
+data_offset:
+    dd         0 ; file load start (PLACEHOLDER)
+    dd elf_va + 0x1000 ; p_vaddr  - virt addr of 1st byte of segment
+    dd         0 ; NOT USED
+data_bytes1:
+    dd         0 ; bytes to load from file (placeholder)
+data_bytes2:
+    dd         0 ; bytes of memory to allocate (placeholder)
+    dd         6 ; flags: 1=exec, 2=write, 4=read (7=RWX)
+    dd    0 ; Memory alignment
+       ; **********************************************
+
+    ; End of entire ELF header.
+    ; Calculate size of ELF header, used above.
     elf_size equ $ - elf_header
 
+temp_test_string: db 'HELLO WORLD' ; 11 bytes test
 
 section .text
 
@@ -1032,10 +1087,29 @@ DEFWORD make_elf
     pop esi ; addr of tail (and keep in esi the whole time)
     mov eax, [esi + T_CODE_LEN]    ; get len of code
     ; Overwrite the placeholder program size values in the
-    ; ELF header data section with this word's code size.
-    mov [prog_bytes1], eax
-    mov [prog_bytes2], eax
+    ; ELF program header with this word's code size.
 DEBUG "prog bytes: ", eax
+     mov [prog_bytes1], eax ; file
+     mov [prog_bytes2], eax ; memory
+
+;     mov dword [prog_bytes1], 0x1000
+;     mov dword [prog_bytes2], 0x1000
+
+
+    ; then add elf_size, which should give us the elf header
+    ; plus the size of the code, for the total offset from
+    ; the beginning of the file to the start of the data
+    ; segment's memory to write.
+    add eax, elf_size ; should be the offset from beginning
+                      ; to the data i'm writing immediately
+                      ; after the executable part...
+    mov [data_offset], eax
+
+    ; TODO: real value - using temp_test_string !
+    mov dword [data_bytes1], 11 ; file
+    mov dword [data_bytes2], 11 ; memory
+
+DEBUG "data offset (header+prog): ", eax
 
     ; From open(2) man page:
     ;   A call to creat() is equivalent to calling open()
@@ -1046,7 +1120,7 @@ DEBUG "prog bytes: ", eax
     ;   #define O_CREAT   00000100
     ;   #define O_WRONLY  00000001
     ;   #define O_TRUNC   00001000
-    ; which are apparently octal values???
+    ; which are apparently octal values??? (NOT binary)
     ; Hence this flag value for 'open':
     mov ecx, (0100o | 0001o | 1000o)
     ; ebx contains null-terminated word name (see above)
@@ -1054,10 +1128,9 @@ DEBUG "prog bytes: ", eax
     mov eax, SYS_OPEN
     int 80h ; now eax will contain the new file desc.
 
-    DEBUG "new fd: ", eax
+DEBUG "new fd: ", eax
     ; TODO: if open failed, print an error message and
     ;       skip to the end.
-
 
     ;
     ; Write ELF header
@@ -1068,11 +1141,18 @@ DEBUG "prog bytes: ", eax
     int 80h
 
     ;
-    ; Write word (program)
+    ; Write word (executable program segment)
     mov edx, [esi + T_CODE_LEN] ; bytes to write
     mov eax, [esi + T_CODE_OFFSET] ; for source addr
     mov ecx, esi ; tail addr
     sub ecx, eax ; source addr (code offset from tail)
+    mov eax, SYS_WRITE ; ebx still has fd
+    int 80h
+
+    ;
+    ; Write our memory (for data program segment)
+    mov edx, 11 ; bytes to write
+    mov ecx, temp_test_string ; for source addr
     mov eax, SYS_WRITE ; ebx still has fd
     int 80h
 
@@ -1182,7 +1262,6 @@ get_next_token:
     CALLWORD ebx ; call word with that addr (via reg)
     jmp get_next_token
 .end_of_input:
-    PRINTSTR `Goodbye.\n`
     push 0 ; exit status
     CALLWORD exit
 .token_not_found:
