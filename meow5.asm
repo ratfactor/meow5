@@ -66,7 +66,7 @@ return_addr:   resb 4    ; To "push/pop" return stack
         mov eax, SYS_WRITE
         int 0x80
         popa ; restore all registers
-%endmacro ; DEBUG print
+%endmacro ; PRINTSTR
 
 %macro DEBUG 2
     PRINTSTR %1
@@ -990,9 +990,19 @@ ENDWORD getvar, 'get', (IMMEDIATE | COMPILE)
 
 
 ; *******************************************
-; *     Attempt to write an ELF header!     *
+; *               ELF HEADER!               *
 ; *******************************************
-
+; This is defined in meow5's program data. It
+; gets filled in with the correct values for
+; whatever word we're "compiling" via:
+;
+;   make_elf <filename>
+;
+; There was an attempt to write two program
+; headers so there would be a program segment
+; and a data segment. But that ended up being
+; not worth the effort.
+; 
 section .data
 %assign elf_va 0x08048000 ; elf virt mem start address
 elf_header:
@@ -1007,40 +1017,35 @@ elf_header:
     dw          2 ; type      - 2="Executable file"
     dw          3 ; machine   - 3="Intel 80386"
     dd          1 ; version   - 1="Current"
-
-;    dd     elf_va ; entry - execution start address
+    ; For reasons I do not understand, I had not had any
+    ; luck setting this program entry to the beginning of
+    ; the virtual memory start address and loading the file
+    ; starting immediately after the ELF header where the
+    ; word's machine code was written. It always segfaulted.
     dd elf_va + elf_size ; entry - execution start address
-
     dd phdr1 - elf_header ; phoff - bytes to program header
     dd          0 ; shoff     - 0 for no section header
     dd          0 ; flags     - processor-specific flags
     dw   hdr_size ; ehsize    - this header bytes, see below
-    ; We want the "program header" because that says how to
-    ; layout stuff in memory when we run. we do NOT need the
-    ; "section header" because that's more for compilers and
-    ; linkers.
     dw  phdr_size ; phentsize - program header size
-    dw          2 ; phnum     - program header count
+    dw          1 ; phnum     - program header count
     dw          0 ; shentsize - section header size (none)
     dw          0 ; shnum     - section header count
     dw          0 ; shstrndx  - section header offset
     hdr_size equ $ - elf_header ; calulate elf header size
 
-    ; This program header is for the compiled (inlined) word
-    ; machine code that we'll be writing out to make the
-    ; program. So the "file size" and "mem size" should be
-    ; equal.
-
-
-    ; Program headers.
-    ; All values are 4 bytes long (dd = "define double")
-
        ; **********************************************
-phdr1: ; Program Header 1 - the program
+phdr1: ; Program Header 1 - The one and only.
        ; **********************************************
     dd         1 ; type of program header (1=PT_LOAD)
-;    dd  elf_size ; offset in file of data to load
-    dd  0 ; offset in file of data to load
+    ; As mentioned above for the execution start (entry)
+    ; address, I had no luck setting this program header to
+    ; load with any offset other than 0. It seems silly to
+    ; load the ELF header itself into memory, but since it's
+    ; a handful of bytes, it's totally not a big deal. It
+    ; just means our entry address above needs to start
+    ; after the header!
+    dd         0 ; offset in file of data to load
     dd    elf_va ; target memory start address
     dd         0 ; (NOT USED "phys addr"
 prog_bytes1:
@@ -1052,24 +1057,9 @@ prog_bytes2:
        ; **********************************************
 
     ; Calculate program header size. Only need to do this
-    ; once. All program headers are the same size.
+    ; once. All program headers are the same size. (And now
+    ; there's just one again. So that's doubly true.)
     phdr_size equ $ - phdr1 ; calculate program header size
-
-       ; **********************************************
-phdr2: ; Program Header 2 - the data
-       ; **********************************************
-    dd         1 ; type=load
-data_offset:
-    dd         0 ; file load start (PLACEHOLDER)
-    dd elf_va + 0x1000 ; p_vaddr  - virt addr of 1st byte of segment
-    dd         0 ; NOT USED
-data_bytes1:
-    dd         0 ; bytes to load from file (placeholder)
-data_bytes2:
-    dd         0 ; bytes of memory to allocate (placeholder)
-    dd         6 ; flags: 1=exec, 2=write, 4=read (7=RWX)
-    dd    0 ; Memory alignment
-       ; **********************************************
 
     ; End of entire ELF header.
     ; Calculate size of ELF header, used above.
@@ -1088,32 +1078,13 @@ DEFWORD make_elf
     mov eax, [esi + T_CODE_LEN]    ; get len of code
     ; Overwrite the placeholder program size values in the
     ; ELF program header with this word's code size.
-DEBUG "prog bytes: ", eax
      mov [prog_bytes1], eax ; file
      mov [prog_bytes2], eax ; memory
 
-;     mov dword [prog_bytes1], 0x1000
-;     mov dword [prog_bytes2], 0x1000
-
-
-    ; then add elf_size, which should give us the elf header
-    ; plus the size of the code, for the total offset from
-    ; the beginning of the file to the start of the data
-    ; segment's memory to write.
-    add eax, elf_size ; should be the offset from beginning
-                      ; to the data i'm writing immediately
-                      ; after the executable part...
-    mov [data_offset], eax
-
-    ; TODO: real value - using temp_test_string !
-    mov dword [data_bytes1], 11 ; file
-    mov dword [data_bytes2], 11 ; memory
-
-DEBUG "data offset (header+prog): ", eax
-
+    ; We can create and open at the same time!
     ; From open(2) man page:
-    ;   A call to creat() is equivalent to calling open()
-    ; with flags equal to O_CREAT|O_WRONLY|O_TRUNC.
+    ;   "A call to creat() is equivalent to calling open()
+    ; with flags equal to O_CREAT|O_WRONLY|O_TRUNC."
     ; I got the flags by searching all of /usr/include and
     ; finding /usr/include/asm-generic/fcntl.h
     ; That yielded (along with bizarre comment "not fcntl"):
@@ -1123,23 +1094,19 @@ DEBUG "data offset (header+prog): ", eax
     ; which are apparently octal values??? (NOT binary)
     ; Hence this flag value for 'open':
     mov ecx, (0100o | 0001o | 1000o)
-    ; ebx contains null-terminated word name (see above)
+    ; ebx contains null-terminated word name (FIND_CODE)
     mov edx, 755o ; mode (permissions)
     mov eax, SYS_OPEN
     int 80h ; now eax will contain the new file desc.
-
-DEBUG "new fd: ", eax
+    push ebx   ; SAVE word tail address for end
     ; TODO: if open failed, print an error message and
     ;       skip to the end.
-
-    ;
     ; Write ELF header
     mov edx, elf_size ; bytes to write
     mov ecx, elf_header      ; source address
     mov ebx, eax ; the fd for writing (opened/created above)
     mov eax, SYS_WRITE
     int 80h
-
     ;
     ; Write word (executable program segment)
     mov edx, [esi + T_CODE_LEN] ; bytes to write
@@ -1148,18 +1115,19 @@ DEBUG "new fd: ", eax
     sub ecx, eax ; source addr (code offset from tail)
     mov eax, SYS_WRITE ; ebx still has fd
     int 80h
-
-    ;
     ; Write our memory (for data program segment)
     mov edx, 11 ; bytes to write
     mov ecx, temp_test_string ; for source addr
     mov eax, SYS_WRITE ; ebx still has fd
     int 80h
-
-    ;
     ; Close file (ebx still has fd)
     mov eax, SYS_CLOSE
     int 80h
+    ; File name pushed above. Display message about
+    ; having written file.
+    PRINTSTR 'Wrote to "'
+    PRINT_CODE ; print fname from stack (see "SAVE" above)
+    PRINTSTR `".\n`
 ENDWORD make_elf, 'make_elf', (IMMEDIATE)
 
 ; ----------------------------------------------------------

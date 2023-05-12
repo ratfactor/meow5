@@ -787,4 +787,83 @@ Segmentation fault
 
     Hey, no regrets, though. It's all learning.
 
+    Next night: Okay, back in business with a fully
+    automated test of 'foo' ELF creation:
 
+$ ./dbgfoo.sh 
+Wrote to "foo".
+24-27 - Program entry addr: 0x08048054
+  File offset: 0x0
+  Target memory start: 0x8048000
+  Target memory size: 13 bytes
+Running...
+(Exited with code 42)
+Reading symbols from foo...
+(No debugging symbols found in foo)
+Breakpoint 1 at 0x8048054
+
+Breakpoint 1, 0x08048054 in ?? ()
+Dump of assembler code from 0x8048054 to 0x8048061:
+=> 0x08048054:	push   $0x2a
+   0x08048059:	pop    %ebx
+   0x0804805a:	mov    $0x1,%eax
+   0x0804805f:	int    $0x80
+End of assembler dump.
+A debugging session is active.
+
+	Inferior 1 [process 1743] will be killed.
+
+Quit anyway? (y or n) [answered Y; input not from terminal]
+
+    I'll probably destroy it eventually, so here's the
+    current contents of dbgfoo.sh:
+
+        #!/bin/bash
+
+        # Have to comment out when testing non-0 return values
+        # from test programs:
+        # set -e # quit on errors
+
+        F=meow5
+
+        # rebuild
+        ./build.sh
+
+        # execute the 'foo' elf maker script in meow5!
+        echo ': foo 42 exit ; make_elf foo' | ./$F
+
+        # examine elf headers with mez
+        ../mez/mez 2>&1 | ag 'entry|File offset|Target memory'
+
+        # try to run it
+        echo "Running..."
+        ./foo
+        echo "(Exited with code $?)"
+
+        # debug it
+        gdb foo -q --command=dbgfoo.gdb
+
+    and it's companion, gdbfoo.gdb:
+
+
+        # entry point address hard-coded because
+        break *0x08048054
+
+        run
+
+        disas 0x8048054,+13
+
+        quit
+
+    (By the way, I think it's wild that when I saved the
+    above with the .gdb extension, Vim applied GDB command
+    syntax highlighting. Somebody made a syntax highlighter
+    for GDB command scripts. And they had it detect the
+    extension I happened to pick. It makes me feel like I
+    live in a virtual village with all these other people
+    who are doing stuff like this all the time.)
+
+    I will now close this particular colossal misadventure
+    and begin the next one in log12.txt.
+
+    See you there!
