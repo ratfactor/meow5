@@ -1,1 +1,22 @@
-    Hello!
+    Okay, so here's the plan. I'm going to get Meow5 to the
+    point where it can write out working ELF files that can
+    print the "meow" repetition example that inspired the
+    name of this language/program.
+
+    To do that, I need to:
+
+        1. Write the 'data_area' to 'free' (where strings
+           are stored) to the ELF file after the executable
+           portion.
+
+        2. Update the ELF program header so it loads the
+           additional data.
+
+        3. Ensure that the compiled executable can print the
+           string from the memory loaded at runtime.
+
+    The last one is the biggest challenge just because I'm
+    not entirely sure how that's normally done.
+
+    I could hack together something that works, but I'm more
+    interested in learning how, say, GCC goes about it.
