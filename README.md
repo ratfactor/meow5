@@ -1,5 +1,8 @@
 # Meow5: "Meow. Meow. Meow. Meow. Meow."
 
+**MOVED!** Hello, I am moving my repos to http://ratfactor.com/repos/
+and setting them to read-only ("archived") on GitHub. Thank you, _-Dave_
+
 <img src="meow5cat.svg" alt="SVG meow5 kitty cat logo" align="right">
 
 This is a work in progress. Check the `log*.txt` files to
